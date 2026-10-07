@@ -372,6 +372,9 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
   await expect(page).toHaveURL(/network=local/);
   await page.getByLabel("Time per turn").selectOption("0");
   await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Pick Cherry", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await expect(page.getByLabel("Time per turn")).toHaveValue("0");
   await expect(
