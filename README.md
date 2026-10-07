@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. To try multiplayer without internet discovery, create a lobby, select **On this browser** in the lobby’s **Play together** setting, and paste its invite into another tab in the same browser profile. Each tab gets its own player identity. Reloading and rejoining in the same tab restores that seat.
+Open `http://localhost:3000`. To try multiplayer without internet discovery, create a lobby, select **On this browser** in the lobby’s **Play together** setting, and paste its invite into another tab in the same browser profile. Each tab gets its own player identity. Reloading the same tab automatically restores its lobby or game, player identity, readiness, and hand. Explicitly choosing **Leave table** opts out of auto-return until you join again.
 
 For different devices, use **Across devices** (the default) and share the invite from an HTTPS deployment. A `localhost` link points to the recipient's own device, so it is only useful for tabs on the same machine.
 
@@ -71,7 +71,7 @@ All admitted browsers keep recovery snapshots: hidden hands, exact draw-pile ord
 
 This is a **trusted-friends prototype**, not a formally verified Raft implementation or protection against malicious participants. Signed messages authenticate senders, but leadership certificates are claimed voter lists rather than independently verified signed vote proofs. A determined participant can inspect all hidden state from their recovery replica. Browser encryption with locally accessible keys would not prevent this.
 
-A majority of admitted players must remain connected. A three-player table can recover with two survivors; a two-player table pauses if either leaves. There is no automatic shrinking of membership to evade quorum. A departed player's turn waits for reconnection, preserving the hand and the classic rules. Closing a tab permanently loses its session identity; reconnect in the same tab, including after reload. Private browsing/storage deletion can also prevent recovery. If every browser leaves, there is no always-on peer to serve an invitation; surviving saved sessions must reconnect and regain a majority.
+A majority of admitted players must remain connected. A three-player table can recover with two survivors; a two-player table pauses if either leaves. There is no automatic shrinking of membership to evade quorum. A departed player's turn waits for reconnection, preserving the hand and the classic rules. Closing a tab permanently loses its session identity; reconnect in the same tab, including after reload (which automatically reconnects). Private browsing/storage deletion can also prevent recovery. If every browser leaves, there is no always-on peer to serve an invitation; surviving saved sessions must reconnect and regain a majority.
 
 Background tabs and suspended mobile browsers may delay heartbeats or appear disconnected. A 12-player WebRTC mesh has 66 peer connections; real-device and network testing at that size remains necessary.
 
@@ -82,6 +82,16 @@ Version 2 invites and rooms are intentionally separate from the earlier prototyp
 The engine implements initial dealer selection, seven-card dealing, opening action-card effects, matching by color/number/symbol, voluntary drawing, only playing the newly drawn card after a draw, two-player action rules, draw penalties, discard recycling, and scoring. Wild Draw Four bluffs are allowed and resolved through a challenge, including when the last card is a Draw Four. The challenger sees the pre-play hand as evidence.
 
 UNO can be declared atomically with a play using the checkbox, or afterward with the UNO button. A missed declaration is penalized only if another player catches it before the next turn action starts. Commands are ordered by the master; animation timing does not decide legality. Multi-card penalties are resolved atomically, and only real available cards can be drawn when the entire deck is held in players' hands.
+
+### Turn timer and reconnecting
+
+New lobbies default to **30 seconds per turn**. In the lobby, the host can select 15, 30, 60, 90, or 120 seconds, or **Unlimited**; changing the timer resets readiness. A visible countdown uses the deadline stored in the replicated snapshot. Drawing, UNO calls, choosing a wild color, reloading, and host elections do not restart it. A new turn starts a new deadline, including a two-player skip/reverse that gives the same player another go.
+
+At expiry, the game master commits a skipped turn. No extra card is drawn for a normal timeout. Pending +2 stacks are taken, and a pending Wild Draw Four is accepted before passing; an unanswered opening Wild keeps the displayed red fallback. This also ends a turn after drawing even when the “Play what you draw” house rule is enabled. These are optional digital timing rules, separate from classic UNO. Unlimited turns are never skipped because a player disconnects.
+
+The timer continues through reloads and connection outages. A majority is still required to commit an expired turn; after reconnection or an election, the current expired turn resolves once, without retroactively skipping later turns. Suspended host browsers can delay expiry processing, and countdown displays assume reasonably synchronized device clocks. Existing saved version-2 games without timer fields remain unlimited. All peers should run the updated app.
+
+Saved sessions reconnect automatically in the same browser tab and origin. New invite recipients still enter their name and join. Restoration waits for the current host or election before enabling play; it neither deals new cards nor advances the turn. Reloading retains session identity; closing a tab permanently or clearing browser storage still has the recovery limitations described above.
 
 ### Optional house rules
 

@@ -50,6 +50,17 @@ export const gameSchema = z.object({
   maxPlayers: z.number().int().min(2).max(12),
   rules: rulesSchema,
   goal: goalSchema,
+  turnTimeoutSeconds: z
+    .union([
+      z.literal(0),
+      z.literal(15),
+      z.literal(30),
+      z.literal(60),
+      z.literal(90),
+      z.literal(120),
+    ])
+    .optional(),
+  turnDeadline: z.number().int().nonnegative().nullable().optional(),
   turnSerial: z.number().int().nonnegative(),
   pendingDrawTwo: z.number().int().nonnegative(),
   animation: z.object({
@@ -91,6 +102,17 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SET_RULES"), rules: rulesSchema }),
   z.object({ type: z.literal("SET_GOAL"), goal: goalSchema }),
   z.object({
+    type: z.literal("SET_TURN_TIMEOUT"),
+    seconds: z.union([
+      z.literal(0),
+      z.literal(15),
+      z.literal(30),
+      z.literal(60),
+      z.literal(90),
+      z.literal(120),
+    ]),
+  }),
+  z.object({
     type: z.literal("SET_CAPACITY"),
     max: z.number().int().min(2).max(12),
   }),
@@ -113,3 +135,10 @@ export const actionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type GameAction = z.infer<typeof actionSchema>;
+
+// Internal authority action; deliberately excluded from the wire command schema.
+export type TimeoutAction = {
+  type: "TIMEOUT";
+  turnSerial: number;
+  deadline: number;
+};

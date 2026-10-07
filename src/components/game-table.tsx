@@ -10,6 +10,7 @@ import { GameSession } from "@/lib/network/session";
 import { useSession } from "@/lib/network/store";
 import { CardBack, ColorPicker, PlayingCard } from "./card";
 import { Dialog } from "./dialog";
+import { TurnTimer } from "./turn-timer";
 import { PlayerToken } from "./player-token";
 import {
   TableFlights,
@@ -31,8 +32,13 @@ export function GameTable({
     announcement,
     animating,
     reduced,
-  } = useTablePresentation(liveState);
-  const [wildCard, setWildCard] = useState<Card | null>(null);
+  } = useTablePresentation(liveState, !session.restored);
+  const [wildChoice, setWildCard] = useState<{
+    card: Card;
+    turnSerial: number;
+  } | null>(null);
+  const wildCard =
+    wildChoice?.turnSerial === liveState.turnSerial ? wildChoice.card : null;
   const [declareUno, setDeclareUno] = useState(true);
   const [revealed, setRevealed] = useState<Card[] | null>(null);
   const rack = useRef<HTMLDivElement>(null);
@@ -54,7 +60,7 @@ export function GameTable({
   const top = state.discard.at(-1)!;
   function play(card: Card, color?: Color) {
     if (card.color === null && !color) {
-      setWildCard(card);
+      setWildCard({ card, turnSerial: state.turnSerial });
       return;
     }
     session.act({
@@ -126,6 +132,7 @@ export function GameTable({
             {state.direction === 1 ? "Clockwise" : "Counterclockwise"}
           </span>
         </div>
+        <TurnTimer state={liveState} />
         <div className="wood-frame game-board">
           <div
             className={`felt-table ${opponents.length > 4 ? "large-table" : ""}`}

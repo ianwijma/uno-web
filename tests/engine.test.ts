@@ -501,3 +501,95 @@ describe("table settings and house rules", () => {
     );
   });
 });
+
+describe("turn deadlines", () => {
+  const expire = (s: GameState, now = s.turnDeadline!) =>
+    reduceGame(
+      s,
+      s.ownerId,
+      { type: "TIMEOUT", turnSerial: s.turnSerial, deadline: s.turnDeadline! },
+      now,
+    );
+  it("defaults to 30 seconds; only the lobby owner can configure it and readiness resets", () => {
+    let s = createLobby(player("p0"), 4);
+    expect(s.turnTimeoutSeconds).toBe(30);
+    s = reduceGame(s, "p1", { type: "JOIN", player: player("p1") });
+    expect(() =>
+      reduceGame(s, "p1", { type: "SET_TURN_TIMEOUT", seconds: 0 }),
+    ).toThrow();
+    s = reduceGame(s, "p0", { type: "SET_TURN_TIMEOUT", seconds: 0 });
+    expect(s.turnTimeoutSeconds).toBe(0);
+    expect(s.players.every((p) => !p.ready)).toBe(true);
+    expect(() =>
+      reduceGame(started(), "p0", { type: "SET_TURN_TIMEOUT", seconds: 60 }),
+    ).toThrow();
+  });
+  it("expires exactly once, only at the deadline, without drawing or changing the hand", () => {
+    const s = fixture([["red:1", "blue:2"], ["yellow:3"], ["green:4"]]);
+    expect(s.turnDeadline).toBe(30000);
+    expect(() => expire(s, 29999)).toThrow();
+    expect(() =>
+      reduceGame(
+        s,
+        "p1",
+        { type: "TIMEOUT", turnSerial: s.turnSerial, deadline: 30000 },
+        30000,
+      ),
+    ).toThrow();
+    const next = expire(s);
+    expect(next.turn).toBe(1);
+    expect(next.hands).toEqual(s.hands);
+    expect(next.turnDeadline).toBe(60000);
+    expect(next.animation.events.at(-1)?.kind).toBe("turn");
+    expect(() =>
+      reduceGame(
+        next,
+        next.ownerId,
+        { type: "TIMEOUT", turnSerial: s.turnSerial, deadline: 30000 },
+        90000,
+      ),
+    ).toThrow();
+  });
+  it("does not extend the deadline after drawing, UNO, or a color decision", () => {
+    const s = fixture([["red:1", "blue:2"], ["yellow:3"]]);
+    const red = s.drawPile.findIndex((c) => c.color === "red");
+    s.drawPile.push(s.drawPile.splice(red, 1)[0]);
+    const drawn = reduceGame(s, "p0", { type: "DRAW" }, 29000);
+    expect(drawn.turnDeadline).toBe(s.turnDeadline);
+    drawn.rules.mustPlayDrawn = true;
+    expect(expire(drawn).turn).toBe(1);
+    s.unoVulnerable = "p1";
+    expect(reduceGame(s, "p1", { type: "UNO" }, 12000).turnDeadline).toBe(
+      30000,
+    );
+    s.pendingWild = { playerId: "p0", opening: true };
+    expect(
+      reduceGame(s, "p0", { type: "COLOR", color: "blue" }, 16000).turnDeadline,
+    ).toBe(30000);
+    expect(expire(s).pendingWild).toBeNull();
+  });
+  it("accepts pending draw penalties, including a winning Draw Four, before advancing", () => {
+    let s = fixture([["red:draw2", "blue:2"], ["yellow:3"], ["green:4"]]);
+    s.rules.stackDrawTwo = true;
+    s = play(s, "draw2");
+    const next = expire(s);
+    expect(next.hands.p1).toHaveLength(3);
+    expect(next.pendingDrawTwo).toBe(0);
+    expect(next.turn).toBe(2);
+    s = play(fixture([["null:wild4"], ["yellow:3"], ["green:4"]]), "wild4");
+    const end = expire(s);
+    expect(end.hands.p1).toHaveLength(5);
+    expect(end.phase).toBe("round-over");
+    expect(end.turnDeadline).toBeNull();
+    expect(assertCardConservation(end)).toBe(true);
+  });
+  it("unlimited games never expire, and old snapshots retain unlimited behavior", () => {
+    const s = fixture([["red:1", "blue:2"], ["yellow:3"]]);
+    s.turnTimeoutSeconds = 0;
+    s.turnDeadline = null;
+    expect(() => expire(s, 999999)).toThrow();
+    delete s.turnTimeoutSeconds;
+    delete s.turnDeadline;
+    expect(play(s, "1").turnDeadline).toBeNull();
+  });
+});

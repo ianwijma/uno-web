@@ -17,6 +17,10 @@ async function journal(page: Page) {
           hash: string;
           state: {
             ownerId: string;
+            turn: number;
+            turnSerial: number;
+            turnDeadline: number | null;
+            turnTimeoutSeconds: number;
             players: Array<{ id: string; name: string }>;
             drawPile: unknown[];
             discard: unknown[];
@@ -57,6 +61,7 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
   ).toBeVisible();
   await page.getByLabel("Play together").selectOption("local");
   await expect(page).toHaveURL(/network=local/);
+  await page.getByLabel("Time per turn").selectOption("0");
   await page.getByLabel("Seats at the table").selectOption("3");
   await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
   await page.getByLabel("Win by", { exact: true }).selectOption("rounds");
@@ -152,7 +157,6 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
     .toBe((await journal(bob)).committed.hash);
   // Reload an admitted peer: identity, term, and seat must survive browser storage recovery.
   await casey.reload();
-  await casey.getByRole("button", { name: "Join a lobby" }).click();
   await expect(
     casey.getByRole("heading", { name: "First to 3 round wins." }),
   ).toBeVisible();
@@ -353,4 +357,204 @@ test("a large mobile hand keeps fixed card and board sizes with reduced motion",
     path: "artifacts/table-mobile-large-hand.png",
     fullPage: true,
   });
+});
+
+test("reload restores lobby settings, readiness, and an active playable hand without advancing unlimited turns", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(120000);
+  await page.goto("/");
+  await page.getByLabel("Your display name").fill("Host");
+  await page.getByRole("button", { name: "Create a lobby" }).click();
+  await expect(page.getByLabel("Time per turn")).toHaveValue("30");
+  await page.getByLabel("Play together").selectOption("local");
+  await expect(page).toHaveURL(/network=local/);
+  await page.getByLabel("Time per turn").selectOption("0");
+  await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
+  await page.reload();
+  await expect(page.getByLabel("Time per turn")).toHaveValue("0");
+  await expect(
+    page.getByRole("button", { name: "Pick Cherry", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "I’m ready" })).toBeEnabled({
+    timeout: 20000,
+  });
+  const guest = await context.newPage();
+  await guest.goto(page.url());
+  await guest.getByLabel("Your display name").fill("Guest");
+  await guest.getByRole("button", { name: "Join a lobby" }).click();
+  await guest.getByRole("button", { name: "Pick Cobalt", exact: true }).click();
+  await guest.getByRole("button", { name: "I’m ready" }).click();
+  await expect(guest.getByRole("button", { name: "Unready" })).toBeEnabled();
+  await guest.reload();
+  await expect(guest.getByRole("button", { name: "Unready" })).toBeEnabled({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "I’m ready" }).click();
+  await page.getByRole("button", { name: "Deal the cards" }).click();
+  const pages = [page, guest];
+  for (let tries = 0; tries < 8; tries++) {
+    for (const p of pages)
+      await expect(p.getByTestId("game-table")).toHaveAttribute(
+        "data-animating",
+        "false",
+      );
+    const active = (await page
+      .getByRole("heading", { name: "Your turn.", exact: true })
+      .isVisible())
+      ? page
+      : guest;
+    const choose = active.getByRole("button", {
+      name: "Choose red",
+      exact: true,
+    });
+    if (await choose.isVisible()) {
+      await choose.click();
+      continue;
+    }
+    if (await active.locator(".hand-card button:enabled").count()) break;
+    const pass = active.getByRole("button", { name: "End turn", exact: true });
+    const before = (await journal(active)).committed.index;
+    if (await pass.isEnabled()) await pass.click();
+    else await active.getByRole("button", { name: "Draw one card" }).click();
+    await expect
+      .poll(async () => (await journal(active)).committed.index)
+      .toBeGreaterThan(before);
+  }
+  for (const p of pages)
+    await expect(p.getByTestId("game-table")).toHaveAttribute(
+      "data-animating",
+      "false",
+    );
+  const active = (await page
+    .getByRole("heading", { name: "Your turn.", exact: true })
+    .isVisible())
+    ? page
+    : guest;
+  const cardName = await active
+    .locator(".hand-card button:enabled")
+    .first()
+    .getAttribute("aria-label");
+  expect(cardName).toBeTruthy();
+  const before = (await journal(active)).committed.state;
+  // Reload both roles: the host must recover authority and the guest its exact seat.
+  for (const p of pages) {
+    await p.reload();
+    await expect(p.getByTestId("game-table")).toBeVisible();
+    await expect(p.locator(".connection-status")).toContainText("Connected", {
+      timeout: 25000,
+    });
+    await expect(p.getByTestId("game-table")).toHaveAttribute(
+      "data-animating",
+      "false",
+    );
+  }
+  const after = (await journal(active)).committed.state;
+  expect(after.turnSerial).toBe(before.turnSerial);
+  expect(after.turn).toBe(before.turn);
+  expect(after.hands).toEqual(before.hands);
+  expect(after.turnDeadline).toBeNull();
+  await expect(
+    active.getByRole("heading", { name: "Your turn.", exact: true }),
+  ).toBeVisible();
+  const card = active
+    .getByRole("button", { name: cardName!, exact: true })
+    .first();
+  await expect(card).toBeEnabled();
+  const revision = (await journal(active)).committed.index;
+  await card.click();
+  const choose = active.getByRole("button", {
+    name: "Choose red",
+    exact: true,
+  });
+  if (await choose.isVisible()) await choose.click();
+  await expect
+    .poll(async () => (await journal(active)).committed.index)
+    .toBeGreaterThan(revision);
+  await active.getByRole("button", { name: "Leave table" }).click();
+  await active.reload();
+  await expect(
+    active.getByRole("button", { name: "Join a lobby" }),
+  ).toBeVisible();
+});
+
+test("the persisted 30-second deadline survives reload; a disconnected player is skipped only when it expires", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(100000);
+  await page.goto("/");
+  await page.getByLabel("Your display name").fill("Clock host");
+  await page.getByRole("button", { name: "Create a lobby" }).click();
+  await page.getByLabel("Play together").selectOption("local");
+  await expect(page).toHaveURL(/network=local/);
+  const pages = [page];
+  for (const [name, color] of [
+    ["Second", "Cobalt"],
+    ["Third", "Lemon"],
+  ]) {
+    const guest = await context.newPage();
+    await guest.goto(page.url());
+    await guest.getByLabel("Your display name").fill(name);
+    await guest.getByRole("button", { name: "Join a lobby" }).click();
+    await guest
+      .getByRole("button", { name: `Pick ${color}`, exact: true })
+      .click();
+    await guest.getByRole("button", { name: "I’m ready" }).click();
+    await expect(guest.getByRole("button", { name: "Unready" })).toBeEnabled();
+    pages.push(guest);
+  }
+  await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
+  await page.getByRole("button", { name: "I’m ready" }).click();
+  await page.getByRole("button", { name: "Deal the cards" }).click();
+  for (const p of pages)
+    await expect(p.getByTestId("game-table")).toHaveAttribute(
+      "data-animating",
+      "false",
+    );
+  const before = (await journal(page)).committed.state;
+  const active = (
+    await Promise.all(
+      pages.map(async (p) => ({
+        p,
+        active: await p
+          .getByRole("heading", { name: "Your turn.", exact: true })
+          .isVisible(),
+      })),
+    )
+  ).find((p) => p.active)!.p;
+  for (const p of new Set([page, active])) {
+    await p.reload();
+    await expect(p.getByTestId("game-table")).toBeVisible();
+    await expect(p.locator(".connection-status")).toContainText("Connected", {
+      timeout: 20000,
+    });
+  }
+  const restored = (await journal(active)).committed.state;
+  expect(restored.turnDeadline).toBe(before.turnDeadline);
+  expect(restored.turnSerial).toBe(before.turnSerial);
+  expect(restored.hands).toEqual(before.hands);
+  await expect(active.getByRole("timer")).toHaveAttribute(
+    "data-deadline",
+    String(before.turnDeadline),
+  );
+  const observer = pages.find((p) => p !== active)!;
+  await active.close();
+  // Observe every committed update until expiry; losing a peer is not a turn action.
+  while (Date.now() < before.turnDeadline! - 300) {
+    expect((await journal(observer)).committed.state.turnSerial).toBe(
+      before.turnSerial,
+    );
+    await observer.waitForTimeout(250);
+  }
+  await expect
+    .poll(async () => (await journal(observer)).committed.state.turnSerial, {
+      timeout: 15000,
+    })
+    .toBe(before.turnSerial + 1);
+  const expired = (await journal(observer)).committed.state;
+  expect(expired.turn).not.toBe(before.turn);
+  expect(expired.hands).toEqual(before.hands);
+  expect(expired.turnDeadline).toBeGreaterThan(before.turnDeadline!);
 });

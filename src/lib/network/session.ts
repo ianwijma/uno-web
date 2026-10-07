@@ -1,5 +1,5 @@
 import { createLobby, reduceGame } from "../game/engine";
-import { GameAction, Player } from "../game/types";
+import { GameAction, Player, TimeoutAction } from "../game/types";
 import { Invite } from "./invite";
 import {
   canonical,
@@ -31,6 +31,7 @@ const timeout = 6500;
 
 /** Trusted-player replication. This is deliberately not a Byzantine consensus protocol. */
 export class GameSession {
+  restored = false;
   private transport: Transport | null = null;
   private privateKey!: CryptoKey;
   private publicKeys = new Map<string, CryptoKey>();
@@ -161,6 +162,7 @@ export class GameSession {
     );
     const saved = await db.journals.get(this.journal.key);
     if (saved) {
+      this.restored = true;
       this.journal = saved;
       // A reload must regain authority by election, never assume an old leader lease.
       this.leaderId = saved.leaderId === this.selfId ? null : saved.leaderId;
@@ -182,6 +184,7 @@ export class GameSession {
       this.readyLeader = true;
       await this.persist();
     }
+    if (this.closed) return;
     this.transport = await createTransport(
       this.invite.room,
       this.invite.key,
@@ -189,6 +192,11 @@ export class GameSession {
       (data) => this.queue(() => this.receive(data)),
       (message) => this.error(message),
     );
+    if (this.closed) {
+      this.transport.close();
+      this.transport = null;
+      return;
+    }
     this.publish();
     await this.send({ type: "HELLO", name: this.name });
     this.timer = setInterval(
@@ -496,6 +504,34 @@ export class GameSession {
     this.pending = null;
     await this.persist();
   }
+  private async expireTurn() {
+    const frame = this.journal.committed;
+    const state = frame?.state;
+    if (
+      !frame ||
+      !state ||
+      !this.readyLeader ||
+      this.leaderId !== this.selfId ||
+      this.pending ||
+      state.phase !== "playing" ||
+      !state.turnTimeoutSeconds ||
+      state.turnDeadline == null ||
+      Date.now() < state.turnDeadline
+    )
+      return;
+    const config = this.electionConfig();
+    if (!jointMajority(this.onlineIds(), config.before, config.after)) return;
+    await this.command(
+      this.selfId,
+      `timeout-${state.turnSerial}-${state.turnDeadline}`,
+      frame.index,
+      {
+        type: "TIMEOUT",
+        turnSerial: state.turnSerial,
+        deadline: state.turnDeadline,
+      },
+    );
+  }
   private async tick() {
     await this.send({ type: "HELLO", name: this.name });
     if (this.leaderId === this.selfId) {
@@ -524,6 +560,7 @@ export class GameSession {
         );
         await this.tryCommit();
       }
+      await this.expireTurn();
       if (Date.now() - this.lastAnnounced > timeout) {
         this.lastAnnounced = Date.now();
         // Helps recovering replicas recognize leadership before requesting a checkpoint.
@@ -596,7 +633,7 @@ export class GameSession {
     actorId: string,
     requestId: string,
     revision: number,
-    action: GameAction,
+    action: GameAction | TimeoutAction,
   ) {
     try {
       if (this.processed.has(requestId)) return;
@@ -605,7 +642,18 @@ export class GameSession {
       const frame = this.journal.committed;
       if (!frame || revision !== frame.index)
         throw new Error("The table changed. Try your action again.");
-      const state = reduceGame(frame.state, actorId, action);
+      // A delayed packet cannot extend an expired turn. Non-turn UNO messages
+      // do not reset the deadline either.
+      if (
+        action.type !== "TIMEOUT" &&
+        frame.state.phase === "playing" &&
+        frame.state.turnDeadline != null &&
+        Date.now() >= frame.state.turnDeadline
+      ) {
+        await this.expireTurn();
+        throw new Error("The turn timer expired. Wait for the next turn.");
+      }
+      const state = reduceGame(frame.state, actorId, action, Date.now());
       const next = await makeFrame(state, frame.index + 1, this.journal.term);
       await this.propose(
         next,

@@ -2114,3 +2114,23 @@ button.playing-card.playable:hover {
     scroll-behavior: auto !important;
   }
 }
+
+.turn-timer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: -3px 5px 14px;
+  color: #f1dfb8;
+  font-variant-numeric: tabular-nums;
+}
+.turn-timer > span {
+  font-size: 9px;
+  letter-spacing: 2px;
+}
+.turn-timer > strong {
+  font-size: 13px;
+}
+.turn-timer.urgent {
+  color: #ffb498;
+}

@@ -6,6 +6,7 @@ import {
   GameState,
   Player,
   TableEvent,
+  TimeoutAction,
 } from "./types";
 
 import { classicRules, goalSchema, rulesSchema } from "./settings";
@@ -27,6 +28,8 @@ export function createLobby(player: Player, maxPlayers: number): GameState {
     maxPlayers,
     rules: { ...classicRules },
     goal: { mode: "points", target: 500 },
+    turnTimeoutSeconds: 30,
+    turnDeadline: null,
     turnSerial: 0,
     pendingDrawTwo: 0,
     animation: { id: 0, events: [] },
@@ -214,7 +217,8 @@ function startRound(s: GameState, seed: number) {
 function applyAction(
   state: GameState,
   actorId: string,
-  action: GameAction,
+  action: GameAction | TimeoutAction,
+  now: number,
 ): GameState {
   const s = structuredClone(state);
   const actor = s.players.find((p) => p.id === actorId);
@@ -259,13 +263,24 @@ function applyAction(
     actor.ready = false;
     return s;
   }
-  if (action.type === "SET_RULES" || action.type === "SET_GOAL") {
+  if (
+    action.type === "SET_RULES" ||
+    action.type === "SET_GOAL" ||
+    action.type === "SET_TURN_TIMEOUT"
+  ) {
     requireRule(
       actorId === s.ownerId && s.phase === "lobby",
       "Only the lobby owner can change settings before play.",
     );
     if (action.type === "SET_RULES") s.rules = rulesSchema.parse(action.rules);
-    else s.goal = goalSchema.parse(action.goal);
+    else if (action.type === "SET_GOAL") s.goal = goalSchema.parse(action.goal);
+    else {
+      requireRule(
+        [0, 15, 30, 60, 90, 120].includes(action.seconds),
+        "Choose a supported turn timeout.",
+      );
+      s.turnTimeoutSeconds = action.seconds;
+    }
     s.players.forEach((p) => {
       p.ready = false;
     });
@@ -303,6 +318,33 @@ function applyAction(
     return s;
   }
   requireRule(s.phase === "playing", "No round is in progress.");
+  if (action.type === "TIMEOUT") {
+    requireRule(
+      actorId === s.ownerId,
+      "Only the game master can expire a turn.",
+    );
+    requireRule(
+      !!s.turnTimeoutSeconds &&
+        s.turnDeadline != null &&
+        action.turnSerial === s.turnSerial &&
+        action.deadline === s.turnDeadline &&
+        now >= s.turnDeadline,
+      "This turn has not expired.",
+    );
+    const timedOut = currentPlayer(s);
+    const offender = s.challenge?.offenderId;
+    if (s.challenge) draw(s, timedOut.id, 4);
+    else if (s.pendingDrawTwo) draw(s, timedOut.id, s.pendingDrawTwo);
+    s.challenge = null;
+    s.pendingDrawTwo = 0;
+    // An opening wild has no chosen color yet; red is the displayed fallback.
+    s.pendingWild = null;
+    s.unoVulnerable = null;
+    advance(s);
+    s.message = `${timedOut.name} ran out of time and misses a turn.${offender ? " The Draw Four penalty is accepted." : ""}`;
+    if (offender) finish(s, offender);
+    return s;
+  }
   if (action.type === "UNO") {
     requireRule(
       s.unoVulnerable === actorId && s.hands[actorId].length === 1,
@@ -465,9 +507,15 @@ export function assertCardConservation(s: GameState): boolean {
 export function reduceGame(
   state: GameState,
   actorId: string,
-  action: GameAction,
+  action: GameAction | TimeoutAction,
+  now = 0,
 ): GameState {
-  const next = applyAction(state, actorId, action);
+  const next = applyAction(state, actorId, action, now);
+  if (next.phase !== "playing") next.turnDeadline = null;
+  else if (next.turnSerial !== state.turnSerial)
+    next.turnDeadline = next.turnTimeoutSeconds
+      ? now + next.turnTimeoutSeconds * 1000
+      : null;
   const events: TableEvent[] = [];
   const newRound = next.round !== state.round;
   if (newRound) {
