@@ -393,6 +393,7 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
   });
   await page.getByRole("button", { name: "I’m ready" }).click();
   await page.getByRole("button", { name: "Deal the cards" }).click();
+  await expect(page.getByTestId("card-animation")).toBeVisible();
   const pages = [page, guest];
   for (let tries = 0; tries < 8; tries++) {
     for (const p of pages)

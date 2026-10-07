@@ -32,7 +32,7 @@ export function GameTable({
     announcement,
     animating,
     reduced,
-  } = useTablePresentation(liveState, !session.restored);
+  } = useTablePresentation(liveState, !session.restoredGame);
   const [wildChoice, setWildCard] = useState<{
     card: Card;
     turnSerial: number;

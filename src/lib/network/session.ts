@@ -31,7 +31,7 @@ const timeout = 6500;
 
 /** Trusted-player replication. This is deliberately not a Byzantine consensus protocol. */
 export class GameSession {
-  restored = false;
+  restoredGame = false;
   private transport: Transport | null = null;
   private privateKey!: CryptoKey;
   private publicKeys = new Map<string, CryptoKey>();
@@ -162,7 +162,8 @@ export class GameSession {
     );
     const saved = await db.journals.get(this.journal.key);
     if (saved) {
-      this.restored = true;
+      this.restoredGame =
+        !!saved.committed && saved.committed.state.phase !== "lobby";
       this.journal = saved;
       // A reload must regain authority by election, never assume an old leader lease.
       this.leaderId = saved.leaderId === this.selfId ? null : saved.leaderId;
