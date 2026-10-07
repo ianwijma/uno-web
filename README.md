@@ -1,3 +1,114 @@
 # UNO Web
 
-A browser-owned UNO game built with Next.js, TypeScript, and Tailwind CSS.
+A private, browser-owned UNO game built with Next.js, TypeScript, and Tailwind CSS. Create a lobby, copy an invite, and play with friends. There is no game backend, account service, or remote database. This is an unofficial implementation of the classic game.
+
+## Run locally
+
+Use Node.js 24 (minimum 22.12):
+
+```sh
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. To try multiplayer without internet discovery, select **Local · browser tabs**, create a lobby, and paste its invite into another tab in the same browser profile. Each tab gets its own player identity. Reloading and rejoining in the same tab restores that seat.
+
+For different devices, select **Online · P2P** and share the invite from an HTTPS deployment. A `localhost` link points to the recipient's own device, so it is only useful for tabs on the same machine.
+
+```sh
+npm run build
+npm run preview
+```
+
+`next build` exports to `out/`. Any HTTPS static host can serve those files; no running Next.js server, API routes, or server actions are needed. Opening `index.html` directly through `file://` is not supported.
+
+## Implemented
+
+- Create or join an invite-only lobby; creator-configurable capacity from 2–12 total players.
+- Copyable versioned invite containing room ID, founding identity, signaling strategy, and a random shared secret, in the URL fragment.
+- Readiness, host-controlled start, admission capacity checks, and locked membership during a match.
+- Original responsive card/table UI, color selection, draw/pass, UNO declarations and catches, Draw Four challenges, round scores, and matches to 500.
+- Pure deterministic rules engine for the **classic 108-card edition**. No stacking, jump-in, or seven-zero house rules.
+- WebRTC room discovery through Trystero's Nostr strategy; a BroadcastChannel transport for local testing.
+- Canonical JSON, Zod message validation, ECDSA identities and signed room-scoped packets, sequenced authoritative snapshots, and IndexedDB journals through Dexie.
+- Majority acknowledgements before committing moves; persisted votes, freshness checks, and host recovery from the latest accepted snapshot.
+- Unit/property tests, browser multiplayer tests, and GitHub Actions verification.
+
+Official classic UNO capacity is **2–10 players**. Rooms with 11–12 seats explicitly extend that capacity; card rules and the deck remain unchanged. Rule reference: [Mattel classic UNO instructions](https://service.mattel.com/instruction_sheets/UNO%20Basic%20IS.pdf).
+
+## Networking and invites
+
+Online mode has **no game server**, but is not infrastructure-free. Trystero uses existing public Nostr relays for signaling and STUN for network discovery. Gameplay travels over WebRTC data channels. The room secret encrypts Trystero's signaling descriptions; ECDSA authenticates protocol messages against each player's public-key fingerprint.
+
+The invite contains discovery and admission information. Browser-specific WebRTC offers, answers, and ICE candidates are created and exchanged when players connect; a reusable URL cannot contain all future connection details. Treat the link as a bearer invitation and share it only with your group. The fragment is not included in the HTTP request, although browser history and anyone receiving the link can see it.
+
+Some NATs/firewalls need TURN. Default mode has no provisioned TURN service, so internet connectivity is best effort. A developer can configure their own short-lived ICE settings in the browser before joining:
+
+```js
+localStorage.setItem(
+  "uno-ice-servers-v1",
+  JSON.stringify([
+    { urls: "stun:your-stun.example:3478" },
+    {
+      urls: "turns:your-turn.example:5349",
+      username: "temporary-user",
+      credential: "temporary-credential",
+    },
+  ]),
+);
+```
+
+Custom ICE settings replace defaults. Do not embed permanent relay credentials in the source or invitation. Local mode requires no external discovery, STUN, or TURN, and only connects tabs in one browser profile on the same origin.
+
+## Authority, replication, and recovery
+
+The lobby creator is initially the game master. The dealer is selected independently by the rules engine. Clients send commands with a unique request ID and expected revision; the master validates a command, proposes the next full snapshot, and waits for a majority before committing it. Admission requires majorities of both the previous and proposed membership.
+
+All admitted browsers keep recovery snapshots: hidden hands, exact draw-pile order, turn, pending challenges, UNO windows, scores, and deterministic shuffle state. Acknowledgements and election votes are persisted before transmission. A new leader re-proposes the freshest accepted snapshot in its new term, including a move acknowledged before the old leader failed to broadcast its commit. Duplicate IDs, stale revisions, old terms, and altered snapshot hashes are rejected. Lobby ownership transfers to the elected master so someone can deal the next round.
+
+This is a **trusted-friends prototype**, not a formally verified Raft implementation or protection against malicious participants. Signed messages authenticate senders, but leadership certificates are claimed voter lists rather than independently verified signed vote proofs. A determined participant can inspect all hidden state from their recovery replica. Browser encryption with locally accessible keys would not prevent this.
+
+A majority of admitted players must remain connected. A three-player table can recover with two survivors; a two-player table pauses if either leaves. There is no automatic shrinking of membership to evade quorum. A departed player's turn waits for reconnection, preserving the hand and the classic rules. Closing a tab permanently loses its session identity; reconnect in the same tab, including after reload. Private browsing/storage deletion can also prevent recovery. If every browser leaves, there is no always-on peer to serve an invitation; surviving saved sessions must reconnect and regain a majority.
+
+Background tabs and suspended mobile browsers may delay heartbeats or appear disconnected. A 12-player WebRTC mesh has 66 peer connections; real-device and network testing at that size remains necessary.
+
+## Rules and digital timing
+
+The engine implements initial dealer selection, seven-card dealing, opening action-card effects, matching by color/number/symbol, voluntary drawing, only playing the newly drawn card after a draw, two-player action rules, draw penalties, discard recycling, and scoring. Wild Draw Four bluffs are allowed and resolved through a challenge, including when the last card is a Draw Four. The challenger sees the pre-play hand as evidence.
+
+UNO can be declared atomically with a play using the checkbox, or afterward with the UNO button. A missed declaration is penalized only if another player catches it before the next turn action starts. Commands are ordered by the master; animation timing does not decide legality. Multi-card penalties are resolved atomically, and only real available cards can be drawn when the entire deck is held in players' hands.
+
+## Verify
+
+```sh
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+The default browser tests use the local transport: admission, full-lobby rejection, readiness, dealing, master departure, election, matching recovered hands/deck, same-seat reconnection, reload recovery, and a replicated draw. Mobile landing checks cover validation, rules, and overflow. Unit/property tests cover rule edge cases and card conservation across randomized 2–12-player games.
+
+An optional public-relay smoke test is available:
+
+```sh
+UNO_TEST_ONLINE=1 npx playwright test tests/browser/online.spec.ts
+```
+
+Public-relay availability and NAT traversal are outside the deterministic test suite. The optional test uses the inherited HTTPS proxy when configured. Passing browser-tab tests does not establish reliable WebRTC connectivity across arbitrary internet networks.
+
+Set `UNO_TEST_STATIC=1` after `npm run build` to run browser tests against the exported production files instead of the development server. CI uses this mode.
+
+## Structure
+
+```text
+src/lib/game/        # Typed state, classic rules, deterministic reducer
+src/lib/network/     # Invites, signed protocol, transports, journal, election
+src/components/      # Lobby, table, cards, accessible dialogs
+src/app/             # Static Next.js entry point, Tailwind and styles
+tests/               # Rule/property tests and browser stories
+```
+
+Next steps are public-network/mobile testing, stronger election proof verification and fault-injection tests, lobby removal with safe membership changes, and an explicit product policy for permanent player departure. No bot takeover, public lobby listing, matchmaking, or cloud persistence is implemented.
