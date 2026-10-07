@@ -32,7 +32,7 @@ describe("replication boundaries", () => {
   });
   it("detects altered state snapshots", async () => {
     const state = createLobby(
-      { id: "a", name: "Alice", ready: false, score: 0 },
+      { id: "a", name: "Alice", ready: false, score: 0, wins: 0, color: null },
       3,
     );
     const frame = await makeFrame(state, 1, 1);
@@ -52,7 +52,7 @@ describe("replication boundaries", () => {
 
 it("snapshot hashes survive schema normalization and object property reordering", async () => {
   const state = createLobby(
-    { id: "a", name: "Alice", score: 0, ready: false },
+    { id: "a", name: "Alice", score: 0, ready: false, wins: 0, color: null },
     3,
   );
   const frame = await makeFrame(state, 1, 1);

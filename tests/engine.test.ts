@@ -9,19 +9,24 @@ import {
   makeDeck,
   reduceGame,
 } from "../src/lib/game/engine";
+import { playerColors, classicRules } from "../src/lib/game/settings";
 import { Card, GameState, Player } from "../src/lib/game/types";
 const player = (id: string): Player => ({
   id,
   name: id,
   ready: true,
   score: 0,
+  wins: 0,
+  color: null,
 });
 function started(count = 3, seed = 123): GameState {
   let s = createLobby(player("p0"), 12);
   for (let i = 1; i < count; i++)
     s = reduceGame(s, `p${i}`, { type: "JOIN", player: player(`p${i}`) });
-  for (const p of s.players)
+  for (const [i, p] of s.players.entries()) {
+    s = reduceGame(s, p.id, { type: "PICK_COLOR", color: playerColors[i].id });
     s = reduceGame(s, p.id, { type: "READY", ready: true });
+  }
   return reduceGame(s, "p0", { type: "START", seed });
 }
 function fixture(specs: string[][], topSpec = "red:5"): GameState {
@@ -276,6 +281,223 @@ describe("classic UNO", () => {
         },
       ),
       { numRuns: 60 },
+    );
+  });
+});
+
+describe("table settings and house rules", () => {
+  it("requires a unique playing piece before readying and rejects conflicting claims", () => {
+    let s = createLobby(player("p0"), 12);
+    s = reduceGame(s, "p1", { type: "JOIN", player: player("p1") });
+    expect(() => reduceGame(s, "p0", { type: "READY", ready: true })).toThrow(
+      /color/,
+    );
+    s = reduceGame(s, "p0", { type: "PICK_COLOR", color: "cherry" });
+    expect(() =>
+      reduceGame(s, "p1", { type: "PICK_COLOR", color: "cherry" }),
+    ).toThrow(/taken/);
+    s = reduceGame(s, "p0", { type: "READY", ready: true });
+    s = reduceGame(s, "p0", { type: "PICK_COLOR", color: "lemon" });
+    expect(s.players[0].ready).toBe(false);
+    s = reduceGame(s, "p1", { type: "PICK_COLOR", color: "cherry" });
+    expect(s.players.map((p) => p.color)).toEqual(["lemon", "cherry"]);
+    expect(() =>
+      reduceGame(started(), "p0", { type: "PICK_COLOR", color: "cobalt" }),
+    ).toThrow(/locked/);
+    const twelve = started(12);
+    expect(new Set(twelve.players.map((p) => p.color)).size).toBe(12);
+  });
+  it("only the owner can configure the lobby; rule and goal changes reset readiness", () => {
+    let s = createLobby(player("p0"), 3);
+    s = reduceGame(s, "p1", { type: "JOIN", player: player("p1") });
+    s = reduceGame(s, "p0", { type: "PICK_COLOR", color: "cherry" });
+    s = reduceGame(s, "p0", { type: "READY", ready: true });
+    expect(() =>
+      reduceGame(s, "p1", {
+        type: "SET_GOAL",
+        goal: { mode: "rounds", target: 3 },
+      }),
+    ).toThrow(/owner/);
+    s = reduceGame(s, "p0", {
+      type: "SET_GOAL",
+      goal: { mode: "rounds", target: 3 },
+    });
+    expect(s.players.every((p) => !p.ready)).toBe(true);
+    s = reduceGame(s, "p0", { type: "READY", ready: true });
+    s = reduceGame(s, "p0", {
+      type: "SET_RULES",
+      rules: { ...classicRules, stackDrawTwo: true },
+    });
+    expect(s.players.every((p) => !p.ready)).toBe(true);
+    expect(() =>
+      reduceGame(started(), "p0", { type: "SET_RULES", rules: classicRules }),
+    ).toThrow(/before play/);
+    expect(() =>
+      reduceGame(s, "p0", {
+        type: "SET_GOAL",
+        goal: { mode: "rounds", target: 0 },
+      }),
+    ).toThrow();
+  });
+  it("tracks rounds won independently of points and honors either goal", () => {
+    let s = fixture([["red:7"], ["null:wild"], ["blue:8"]]);
+    s.goal = { mode: "rounds", target: 2 };
+    s.players[0].score = 900;
+    s = play(s, "7");
+    expect(s.phase).toBe("round-over");
+    expect(s.players[0].wins).toBe(1);
+    let roundWin = fixture([["red:7"], ["null:wild"], ["blue:8"]]);
+    roundWin.goal = { mode: "rounds", target: 2 };
+    roundWin.players[0].wins = 1;
+    roundWin = play(roundWin, "7");
+    expect(roundWin.phase).toBe("match-over");
+    expect(roundWin.players[0].wins).toBe(2);
+    let points = fixture([["red:7"], ["null:wild"], ["blue:8"]]);
+    points.goal = { mode: "points", target: 50 };
+    points = play(points, "7");
+    expect(points.phase).toBe("match-over");
+    expect(points.players[0].score).toBe(58);
+  });
+  it("stacks +2 across colors and takes the accumulated penalty without mixing +4", () => {
+    let s = fixture([
+      ["red:draw2", "yellow:1"],
+      ["blue:draw2", "yellow:2"],
+      ["null:wild4", "blue:8"],
+    ]);
+    s.rules.stackDrawTwo = true;
+    s = play(s, "draw2");
+    expect(s.pendingDrawTwo).toBe(2);
+    expect(s.turn).toBe(1);
+    expect(s.hands.p1).toHaveLength(2);
+    s = play(s, "draw2");
+    expect(s.pendingDrawTwo).toBe(4);
+    expect(s.turn).toBe(2);
+    expect(() => play(s, "wild4")).toThrow(/Match/);
+    s = reduceGame(s, "p2", { type: "DRAW" });
+    expect(s.hands.p2).toHaveLength(6);
+    expect(s.turn).toBe(0);
+    expect(s.pendingDrawTwo).toBe(0);
+    expect(assertCardConservation(s)).toBe(true);
+  });
+  it("settles the whole +2 stack before scoring a final +2", () => {
+    let s = fixture([["red:draw2", "yellow:1"], ["blue:draw2"], ["green:8"]]);
+    s.rules.stackDrawTwo = true;
+    s = play(s, "draw2");
+    s = play(s, "draw2");
+    expect(s.phase).toBe("round-over");
+    expect(s.winnerId).toBe("p1");
+    expect(s.hands.p2).toHaveLength(5);
+    expect(s.pendingDrawTwo).toBe(0);
+  });
+  it("draws until a playable card and enforces playing only that card when required", () => {
+    let s = fixture([["red:7", "yellow:1"], ["green:8"], ["blue:8"]]);
+    const pull = (color: string, value: string) =>
+      s.drawPile.splice(
+        s.drawPile.findIndex((c) => c.color === color && c.value === value),
+        1,
+      )[0];
+    const playable = pull("red", "2");
+    const miss1 = pull("blue", "1");
+    const miss2 = pull("green", "1");
+    s.drawPile.push(playable, miss2, miss1);
+    s.rules.drawUntilPlayable = true;
+    s.rules.mustPlayDrawn = true;
+    s = reduceGame(s, "p0", { type: "DRAW" });
+    expect(s.hands.p0).toHaveLength(5);
+    expect(s.drawnCardId).toBe(playable.id);
+    expect(s.animation.events).toContainEqual({
+      kind: "draw",
+      playerId: "p0",
+      count: 3,
+    });
+    expect(() => reduceGame(s, "p0", { type: "PASS" })).toThrow(/requires/);
+    expect(() => play(s, "7")).toThrow(/drawn card/);
+    s = play(s, "2");
+    expect(s.turn).toBe(1);
+    expect(assertCardConservation(s)).toBe(true);
+  });
+  it("stops drawing when all available cards run out", () => {
+    let s = fixture([["blue:1"], ["green:8"], ["yellow:8"]]);
+    const misses = s.drawPile.filter(
+      (c) => c.color === "blue" && c.value === "2",
+    );
+    s.hands.p1.push(...s.drawPile.filter((c) => !misses.includes(c)));
+    s.drawPile = misses;
+    s.rules.drawUntilPlayable = true;
+    s.rules.mustPlayDrawn = true;
+    s = reduceGame(s, "p0", { type: "DRAW" });
+    expect(s.turn).toBe(1);
+    expect(s.drawPile).toHaveLength(0);
+    expect(assertCardConservation(s)).toBe(true);
+  });
+  it("disables missed-UNO penalties when the table chooses", () => {
+    let s = fixture([["red:7", "green:8"], ["yellow:1"], ["blue:8"]]);
+    s.rules.unoPenalty = false;
+    s = play(s, "7", false);
+    expect(s.unoVulnerable).toBeNull();
+    expect(() =>
+      reduceGame(s, "p2", { type: "CATCH_UNO", playerId: "p0" }),
+    ).toThrow(/disabled/);
+  });
+  it("emits ordered movement cues and same-player turn changes without revealing draws", () => {
+    const s = play(fixture([["red:draw2", "green:8"], ["yellow:1"]]), "draw2");
+    expect(s.animation.events.map((e) => e.kind)).toEqual([
+      "play",
+      "draw",
+      "turn",
+    ]);
+    expect(s.animation.events[1]).toEqual({
+      kind: "draw",
+      playerId: "p1",
+      count: 2,
+    });
+    expect(s.animation.events[2]).toMatchObject({
+      playerId: "p0",
+      previousPlayerId: "p0",
+    });
+    expect(s.turnSerial).toBeGreaterThan(0);
+  });
+  it("conserves cards under combinations of house rules", () => {
+    fc.assert(
+      fc.property(
+        fc.boolean(),
+        fc.boolean(),
+        fc.boolean(),
+        fc.integer({ min: 0, max: 100000 }),
+        (stack, until, must, seed) => {
+          let s = started(4, seed);
+          s.rules = {
+            ...classicRules,
+            stackDrawTwo: stack,
+            drawUntilPlayable: until,
+            mustPlayDrawn: must,
+          };
+          for (let i = 0; i < 350 && s.phase === "playing"; i++) {
+            const id = currentPlayer(s).id;
+            if (s.pendingWild)
+              s = reduceGame(s, id, { type: "COLOR", color: "red" });
+            else if (s.challenge)
+              s = reduceGame(s, id, {
+                type: "RESOLVE_CHALLENGE",
+                challenge: i % 3 === 0,
+              });
+            else {
+              const card = s.hands[id].find(
+                (c) => canPlay(s, c) && (!s.hasDrawn || c.id === s.drawnCardId),
+              );
+              s = reduceGame(
+                s,
+                id,
+                card
+                  ? { type: "PLAY", cardId: card.id, color: "green", uno: true }
+                  : { type: s.hasDrawn ? "PASS" : "DRAW" },
+              );
+            }
+            expect(assertCardConservation(s)).toBe(true);
+          }
+        },
+      ),
+      { numRuns: 40 },
     );
   });
 });

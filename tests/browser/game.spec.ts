@@ -50,22 +50,34 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await page.getByLabel("Your display name").fill("Alice");
-  await page.getByLabel("Seats at the table").selectOption("3");
-  await page.getByLabel("Connection", { exact: true }).selectOption("local");
+  await expect(page.getByLabel("Seats at the table")).toHaveCount(0);
   await page.getByRole("button", { name: "Create a lobby" }).click();
   await expect(
-    page.getByRole("heading", { name: "Your table is taking shape." }),
+    page.getByRole("heading", { name: "Game night starts here." }),
+  ).toBeVisible();
+  await page.getByLabel("Play together").selectOption("local");
+  await expect(page).toHaveURL(/network=local/);
+  await page.getByLabel("Seats at the table").selectOption("3");
+  await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
+  await page.getByLabel("Win by", { exact: true }).selectOption("rounds");
+  await expect(
+    page.getByText("First to 3 round wins.", { exact: true }),
   ).toBeVisible();
   const invite = page.url();
   const bob = await context.newPage();
   await bob.goto(invite);
   await bob.getByLabel("Your display name").fill("Bob");
   await bob.getByRole("button", { name: "Join a lobby" }).click();
+  await expect(
+    bob.getByRole("button", { name: "Pick Cherry · taken by Alice" }),
+  ).toBeDisabled();
+  await bob.getByRole("button", { name: "Pick Cobalt", exact: true }).click();
   await expect(bob.getByRole("button", { name: "I’m ready" })).toBeEnabled();
   const casey = await context.newPage();
   await casey.goto(invite);
   await casey.getByLabel("Your display name").fill("Casey");
   await casey.getByRole("button", { name: "Join a lobby" }).click();
+  await casey.getByRole("button", { name: "Pick Lemon", exact: true }).click();
   await expect(casey.getByRole("button", { name: "I’m ready" })).toBeEnabled();
   await expect(page.getByText("3/3", { exact: true })).toBeVisible();
   await expect(page.getByText("Casey", { exact: true })).toBeVisible();
@@ -80,14 +92,28 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
     await p.getByRole("button", { name: "I’m ready" }).click();
     await expect(p.getByRole("button", { name: "Unready" })).toBeEnabled();
   }
+  await page.getByRole("switch", { name: "Stack Draw Two" }).click();
+  for (const p of [page, bob, casey]) {
+    await expect(p.getByRole("button", { name: "I’m ready" })).toBeEnabled();
+    await p.getByRole("button", { name: "I’m ready" }).click();
+    await expect(p.getByRole("button", { name: "Unready" })).toBeEnabled();
+  }
+  await page.screenshot({
+    path: "artifacts/lobby-tabletop.png",
+    fullPage: true,
+  });
   await expect(
-    page.getByRole("button", { name: "Start the game" }),
+    page.getByRole("button", { name: "Deal the cards" }),
   ).toBeEnabled();
-  await page.getByRole("button", { name: "Start the game" }).click();
+  await page.getByRole("button", { name: "Deal the cards" }).click();
   for (const p of [page, bob, casey])
     await expect(
-      p.getByRole("heading", { name: "Race to 500." }),
+      p.getByRole("heading", { name: "First to 3 round wins." }),
     ).toBeVisible();
+  await expect(page.getByTestId("game-table")).toHaveAttribute(
+    "data-animating",
+    "false",
+  );
   const before = await journal(bob);
   await expect
     .poll(async () => (await journal(casey)).committed.hash)
@@ -118,9 +144,9 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
   expect(recovered.hands).toEqual(beforeCards.hands);
   expect(recovered.drawPile).toEqual(beforeCards.drawPile);
   await page.getByRole("button", { name: "Join a lobby" }).click();
-  await expect(page.getByRole("heading", { name: "Race to 500." })).toBeVisible(
-    { timeout: 20000 },
-  );
+  await expect(
+    page.getByRole("heading", { name: "First to 3 round wins." }),
+  ).toBeVisible({ timeout: 20000 });
   await expect
     .poll(async () => (await journal(page)).committed.hash)
     .toBe((await journal(bob)).committed.hash);
@@ -128,7 +154,7 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
   await casey.reload();
   await casey.getByRole("button", { name: "Join a lobby" }).click();
   await expect(
-    casey.getByRole("heading", { name: "Race to 500." }),
+    casey.getByRole("heading", { name: "First to 3 round wins." }),
   ).toBeVisible();
   for (const p of [page, bob, casey])
     await expect(p.locator(".connection-status")).toContainText("Connected", {
@@ -138,13 +164,17 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
     [page, bob, casey].map(async (p) => ({
       p,
       active: await p
-        .getByRole("heading", { name: "Your move.", exact: true })
+        .getByRole("heading", { name: "Your turn.", exact: true })
         .isVisible(),
     })),
   );
   const turnPage = active.find((p) => p.active)!.p;
+  await expect(turnPage.getByTestId("game-table")).toHaveAttribute(
+    "data-animating",
+    "false",
+  );
   const chooseColor = turnPage.getByRole("dialog", {
-    name: "Pick your color.",
+    name: "Pick the next color.",
   });
   if (await chooseColor.isVisible()) {
     await turnPage
@@ -156,7 +186,36 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
   await expect(
     turnPage.getByRole("button", { name: "Draw one card" }),
   ).toBeEnabled();
+  const cardSize = await turnPage
+    .locator(".hand-card .playing-card")
+    .first()
+    .boundingBox();
+  const boardSize = await turnPage.locator(".game-board").boundingBox();
   await turnPage.getByRole("button", { name: "Draw one card" }).click();
+  await expect(turnPage.getByTestId("card-animation")).toBeVisible();
+  await expect(turnPage.getByTestId("card-animation")).not.toBeVisible();
+  const endTurn = turnPage.getByRole("button", {
+    name: "End turn",
+    exact: true,
+  });
+  if (await endTurn.isEnabled()) await endTurn.click();
+  await expect(turnPage.getByTestId("turn-announcement")).toBeVisible();
+  await expect(
+    turnPage.getByRole("button", { name: "Draw one card" }),
+  ).toBeDisabled();
+  await expect(turnPage.getByTestId("game-table")).toHaveAttribute(
+    "data-animating",
+    "false",
+  );
+  const nextCardSize = await turnPage
+    .locator(".hand-card .playing-card")
+    .first()
+    .boundingBox();
+  const nextBoardSize = await turnPage.locator(".game-board").boundingBox();
+  expect(nextCardSize!.width).toBeCloseTo(cardSize!.width, 0);
+  expect(nextCardSize!.height).toBeCloseTo(cardSize!.height, 0);
+  expect(nextBoardSize!.width).toBeCloseTo(boardSize!.width, 0);
+  expect(nextBoardSize!.height).toBeCloseTo(boardSize!.height, 0);
   await expect
     .poll(async () => (await journal(turnPage)).committed.index)
     .toBeGreaterThan(revision);
@@ -179,7 +238,7 @@ test("mobile landing renders and validates names and invites", async ({
   await expect(page.locator(".error-box")).toBeVisible();
   await page.getByRole("button", { name: "How to play" }).click();
   await expect(
-    page.getByRole("dialog", { name: "The classic rules." }),
+    page.getByRole("dialog", { name: "The rulebook" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -190,6 +249,108 @@ test("mobile landing renders and validates names and invites", async ({
   ).toBe(true);
   await page.screenshot({
     path: "artifacts/landing-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("a large mobile hand keeps fixed card and board sizes with reduced motion", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.getByLabel("Your display name").fill("Alex");
+  await page.getByRole("button", { name: "Create a lobby" }).click();
+  await page.getByLabel("Play together").selectOption("local");
+  await expect(page).toHaveURL(/network=local/);
+  await page.getByRole("button", { name: "Pick Cherry", exact: true }).click();
+  const guest = await context.newPage();
+  await guest.emulateMedia({ reducedMotion: "reduce" });
+  await guest.goto(page.url());
+  await guest.getByLabel("Your display name").fill("Sam");
+  await guest.getByRole("button", { name: "Join a lobby" }).click();
+  await guest.getByRole("button", { name: "Pick Cobalt", exact: true }).click();
+  for (const p of [page, guest]) {
+    await p.getByRole("button", { name: "I’m ready" }).click();
+    await expect(p.getByRole("button", { name: "Unready" })).toBeEnabled();
+  }
+  await page.getByRole("button", { name: "Deal the cards" }).click();
+  await expect(page.getByTestId("game-table")).toHaveAttribute(
+    "data-animating",
+    "false",
+  );
+  const originalCard = await page
+    .locator(".hand-card .playing-card")
+    .first()
+    .boundingBox();
+  const originalBoard = await page.locator(".game-board").boundingBox();
+  for (
+    let i = 0;
+    i < 65 && (await page.locator(".hand-card").count()) < 20;
+    i++
+  ) {
+    for (const p of [page, guest])
+      await expect(p.getByTestId("game-table")).toHaveAttribute(
+        "data-animating",
+        "false",
+      );
+    const active = (await page
+      .getByRole("heading", { name: "Your turn.", exact: true })
+      .isVisible())
+      ? page
+      : guest;
+    const color = active.getByRole("button", {
+      name: "Choose red",
+      exact: true,
+    });
+    if (await color.isVisible()) {
+      await color.click();
+      continue;
+    }
+    const revision = (await journal(active)).committed.index;
+    const pass = active.getByRole("button", { name: "End turn", exact: true });
+    if (await pass.isEnabled()) await pass.click();
+    else await active.getByRole("button", { name: "Draw one card" }).click();
+    await expect
+      .poll(async () => (await journal(active)).committed.index)
+      .toBeGreaterThan(revision);
+    await expect(active.locator(".connection-status")).toContainText(
+      "Connected",
+    );
+    await expect(active.getByTestId("game-table")).toHaveAttribute(
+      "data-animating",
+      "false",
+    );
+  }
+  await expect(page.locator(".hand-card")).toHaveCount(20);
+  const card = await page
+    .locator(".hand-card .playing-card")
+    .first()
+    .boundingBox();
+  const board = await page.locator(".game-board").boundingBox();
+  expect(card!.width).toBeCloseTo(originalCard!.width, 0);
+  expect(card!.height).toBeCloseTo(originalCard!.height, 0);
+  expect(board!.width).toBeCloseTo(originalBoard!.width, 0);
+  expect(board!.height).toBeCloseTo(originalBoard!.height, 0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await page
+      .locator(".hand-scroll")
+      .evaluate((el) => el.scrollWidth > el.clientWidth),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Scroll hand right" }).click();
+  await expect
+    .poll(() => page.locator(".hand-scroll").evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(0);
+  await expect(page.getByTestId("card-animation")).toHaveCount(0);
+  await page.screenshot({
+    path: "artifacts/table-mobile-large-hand.png",
     fullPage: true,
   });
 });

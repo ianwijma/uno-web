@@ -11,9 +11,9 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. To try multiplayer without internet discovery, select **Local · browser tabs**, create a lobby, and paste its invite into another tab in the same browser profile. Each tab gets its own player identity. Reloading and rejoining in the same tab restores that seat.
+Open `http://localhost:3000`. To try multiplayer without internet discovery, create a lobby, select **On this browser** in the lobby’s **Play together** setting, and paste its invite into another tab in the same browser profile. Each tab gets its own player identity. Reloading and rejoining in the same tab restores that seat.
 
-For different devices, select **Online · P2P** and share the invite from an HTTPS deployment. A `localhost` link points to the recipient's own device, so it is only useful for tabs on the same machine.
+For different devices, use **Across devices** (the default) and share the invite from an HTTPS deployment. A `localhost` link points to the recipient's own device, so it is only useful for tabs on the same machine.
 
 ```sh
 npm run build
@@ -27,8 +27,11 @@ npm run preview
 - Create or join an invite-only lobby; creator-configurable capacity from 2–12 total players.
 - Copyable versioned invite containing room ID, founding identity, signaling strategy, and a random shared secret, in the URL fragment.
 - Readiness, host-controlled start, admission capacity checks, and locked membership during a match.
-- Original responsive card/table UI, color selection, draw/pass, UNO declarations and catches, Draw Four challenges, round scores, and matches to 500.
-- Pure deterministic rules engine for the **classic 108-card edition**. No stacking, jump-in, or seven-zero house rules.
+- Felt playing surface, wooden frame and player pieces, paper scorepad, fixed-size scrolling card rack, animated deals/plays/draws, and explicit turn handoffs with reduced-motion support.
+- Twelve exclusive player colors; choose a piece before readying. All configuration lives in the lobby. Changing rules or the goal resets readiness.
+- Configurable points goal (50–5,000) or round-wins goal (1–20); classic default is 500 points. Scores and round wins are tracked separately.
+- Draw/pass, UNO declarations and catches, Draw Four challenges, and round scoring.
+- Pure deterministic rules engine for the **classic 108-card edition**. Classic rules are the default; optional house rules are described below. Jump-in and seven-zero are not implemented.
 - WebRTC room discovery through Trystero's Nostr strategy; a BroadcastChannel transport for local testing.
 - Canonical JSON, Zod message validation, ECDSA identities and signed room-scoped packets, sequenced authoritative snapshots, and IndexedDB journals through Dexie.
 - Majority acknowledgements before committing moves; persisted votes, freshness checks, and host recovery from the latest accepted snapshot.
@@ -72,11 +75,24 @@ A majority of admitted players must remain connected. A three-player table can r
 
 Background tabs and suspended mobile browsers may delay heartbeats or appear disconnected. A 12-player WebRTC mesh has 66 peer connections; real-device and network testing at that size remains necessary.
 
+Version 2 invites and rooms are intentionally separate from the earlier prototype. Create a new lobby and share its new link after updating.
+
 ## Rules and digital timing
 
 The engine implements initial dealer selection, seven-card dealing, opening action-card effects, matching by color/number/symbol, voluntary drawing, only playing the newly drawn card after a draw, two-player action rules, draw penalties, discard recycling, and scoring. Wild Draw Four bluffs are allowed and resolved through a challenge, including when the last card is a Draw Four. The challenger sees the pre-play hand as evidence.
 
 UNO can be declared atomically with a play using the checkbox, or afterward with the UNO button. A missed declaration is penalized only if another player catches it before the next turn action starts. Commands are ordered by the master; animation timing does not decide legality. Multi-card penalties are resolved atomically, and only real available cards can be drawn when the entire deck is held in players' hands.
+
+### Optional house rules
+
+The creator can configure these before dealing; they remain fixed during a match:
+
+- **Stack Draw Two:** answer a pending +2 with another +2 of any color, or take the accumulated penalty and lose the turn. +4 never stacks. Going out resolves the pending penalty before scoring.
+- **Draw until playable:** draw until a playable card appears or the available deck is exhausted. Only the final drawn card may be played.
+- **Must play drawn card:** a playable draw must be played; passing is disabled. Wild cards still require choosing a color.
+- **UNO catch penalty:** enabled by default; disable to remove missed-UNO catches and their two-card penalty.
+
+Card movement finishes before the next turn announcement and controls become active. A growing hand scrolls horizontally without shrinking the cards or resizing the board. Reduced-motion preferences remove flying cards and keep a brief turn announcement.
 
 ## Verify
 
@@ -89,7 +105,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The default browser tests use the local transport: admission, full-lobby rejection, readiness, dealing, master departure, election, matching recovered hands/deck, same-seat reconnection, reload recovery, and a replicated draw. Mobile landing checks cover validation, rules, and overflow. Unit/property tests cover rule edge cases and card conservation across randomized 2–12-player games.
+The default browser tests use the local transport: admission, full-lobby rejection, readiness, dealing, master departure, election, matching recovered hands/deck, same-seat reconnection, reload recovery, and a replicated draw. They also exercise exclusive colors, lobby configuration, readiness resets, animated draws, and stable card/table dimensions. Mobile checks cover validation, rules, overflow, reduced motion, and a 20-card hand with unchanged card/table dimensions. Unit/property tests cover rule edge cases and card conservation across randomized 2–12-player games.
 
 An optional public-relay smoke test is available:
 
