@@ -42,6 +42,7 @@ export class GameSession {
   private votes = new Set<string>();
   private candidate = false;
   private readyLeader = false;
+  private changingNetwork = false;
   private pending: Proposal | null = null;
   private processed = new Set<string>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -134,6 +135,7 @@ export class GameSession {
       status,
       revision: this.journal.committed?.index ?? 0,
       busy:
+        this.changingNetwork ||
         !!this.pending ||
         Date.now() < this.outstandingUntil ||
         (!this.readyLeader && this.leaderId === this.selfId),
@@ -168,6 +170,8 @@ export class GameSession {
         id: this.selfId,
         name: this.name,
         score: 0,
+        wins: 0,
+        color: null,
         ready: false,
       };
       const frame = await makeFrame(createLobby(player, initialCapacity), 0, 1);
@@ -191,6 +195,37 @@ export class GameSession {
       () => this.queue(() => this.tick()),
       heartbeatInterval,
     );
+  }
+  async changeNetwork(network: Invite["network"]) {
+    if (network === this.invite.network) return;
+    const state = this.journal.committed?.state;
+    if (
+      !state ||
+      state.phase !== "lobby" ||
+      state.ownerId !== this.selfId ||
+      state.players.length !== 1 ||
+      this.pending ||
+      this.changingNetwork
+    )
+      throw new Error("Choose the connection before inviting other players.");
+    this.changingNetwork = true;
+    this.publish();
+    try {
+      const transport = await createTransport(
+        this.invite.room,
+        this.invite.key,
+        network,
+        (data) => this.queue(() => this.receive(data)),
+        (message) => this.error(message),
+      );
+      this.transport?.close();
+      this.transport = transport;
+      this.invite.network = network;
+      await this.send({ type: "HELLO", name: this.name });
+    } finally {
+      this.changingNetwork = false;
+      this.publish();
+    }
   }
   private async send(message: Message, to?: string) {
     if (!this.transport || this.closed) return;
@@ -264,6 +299,7 @@ export class GameSession {
       if (
         this.leaderId === this.selfId &&
         this.readyLeader &&
+        !this.changingNetwork &&
         this.journal.committed
       ) {
         const state = this.journal.committed.state;
@@ -297,7 +333,14 @@ export class GameSession {
               this.journal.committed.index,
               {
                 type: "JOIN",
-                player: { id: from, name: m.name, ready: false, score: 0 },
+                player: {
+                  id: from,
+                  name: m.name,
+                  ready: false,
+                  score: 0,
+                  wins: 0,
+                  color: null,
+                },
               },
             );
         }

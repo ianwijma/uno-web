@@ -11,15 +11,18 @@ test("online invite establishes WebRTC and replicates lobby readiness", async ({
   test.setTimeout(120000);
   await page.goto("/");
   await page.getByLabel("Your display name").fill("Online host");
-  await page.getByLabel("Seats at the table").selectOption("2");
   await page.getByRole("button", { name: "Create a lobby" }).click();
   await expect(
-    page.getByRole("heading", { name: "Your table is taking shape." }),
+    page.getByRole("heading", { name: "Game night starts here." }),
   ).toBeVisible();
+  await page.getByLabel("Seats at the table").selectOption("2");
   const guest = await context.newPage();
   await guest.goto(page.url());
   await guest.getByLabel("Your display name").fill("Online guest");
   await guest.getByRole("button", { name: "Join a lobby" }).click();
+  await guest
+    .getByRole("button", { name: "Pick Cobalt", exact: true })
+    .click({ timeout: 90000 });
   await expect(guest.getByRole("button", { name: "I’m ready" })).toBeEnabled({
     timeout: 90000,
   });

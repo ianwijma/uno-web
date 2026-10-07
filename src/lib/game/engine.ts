@@ -1,4 +1,14 @@
-import { Card, Color, colors, GameAction, GameState, Player } from "./types";
+import {
+  Card,
+  Color,
+  colors,
+  GameAction,
+  GameState,
+  Player,
+  TableEvent,
+} from "./types";
+
+import { classicRules, goalSchema, rulesSchema } from "./settings";
 
 export class RuleError extends Error {}
 function requireRule(ok: unknown, message: string): asserts ok {
@@ -11,10 +21,15 @@ export function createLobby(player: Player, maxPlayers: number): GameState {
     "Choose 2–12 seats.",
   );
   return {
-    version: 1,
+    version: 2,
     phase: "lobby",
     ownerId: player.id,
     maxPlayers,
+    rules: { ...classicRules },
+    goal: { mode: "points", target: 500 },
+    turnSerial: 0,
+    pendingDrawTwo: 0,
+    animation: { id: 0, events: [] },
     players: [player],
     hands: {},
     drawPile: [],
@@ -101,6 +116,7 @@ export function currentPlayer(s: GameState): Player {
   return s.players[s.turn];
 }
 function advance(s: GameState, count = 1) {
+  s.turnSerial++;
   s.turn =
     (s.turn + ((s.direction * count) % s.players.length) + s.players.length) %
     s.players.length;
@@ -108,6 +124,7 @@ function advance(s: GameState, count = 1) {
   s.hasDrawn = false;
 }
 export function canPlay(s: GameState, card: Card): boolean {
+  if (s.pendingDrawTwo > 0) return card.value === "draw2";
   const top = s.discard.at(-1);
   return (
     !!top &&
@@ -124,20 +141,27 @@ export function cardPoints(card: Card): number {
       : Number(card.value);
 }
 function finish(s: GameState, id: string) {
-  if (s.hands[id].length || s.challenge || s.pendingWild) return;
+  if (s.hands[id].length || s.challenge || s.pendingWild || s.pendingDrawTwo)
+    return;
   const winner = s.players.find((p) => p.id === id)!;
   const points = Object.entries(s.hands)
     .filter(([player]) => player !== id)
     .flatMap(([, hand]) => hand)
     .reduce((sum, card) => sum + cardPoints(card), 0);
   winner.score += points;
+  winner.wins++;
   s.winnerId = id;
-  s.phase = winner.score >= 500 ? "match-over" : "round-over";
+  s.phase =
+    (s.goal.mode === "points" ? winner.score : winner.wins) >= s.goal.target
+      ? "match-over"
+      : "round-over";
   s.unoVulnerable = null;
   s.message = `${winner.name} wins the round and earns ${points} points!`;
 }
 function startRound(s: GameState, seed: number) {
   s.rng = seed >>> 0;
+  s.turnSerial++;
+  s.pendingDrawTwo = 0;
   s.round++;
   s.phase = "playing";
   s.winnerId = null;
@@ -187,7 +211,7 @@ function startRound(s: GameState, seed: number) {
   s.message = `Round ${s.round}. ${s.players[s.dealer].name} deals.`;
 }
 
-export function reduceGame(
+function applyAction(
   state: GameState,
   actorId: string,
   action: GameAction,
@@ -202,14 +226,50 @@ export function reduceGame(
     requireRule(action.player.id === actorId, "Invalid player identity.");
     if (actor) return s;
     requireRule(s.players.length < s.maxPlayers, "This lobby is full.");
-    s.players.push({ ...action.player, score: 0, ready: false });
+    s.players.push({
+      ...action.player,
+      score: 0,
+      wins: 0,
+      ready: false,
+      color: null,
+    });
     s.message = `${action.player.name} joined the table.`;
     return s;
   }
   requireRule(actor, "You are not a player in this lobby.");
   if (action.type === "READY") {
     requireRule(s.phase === "lobby", "The match has already started.");
+    requireRule(
+      !action.ready || actor.color,
+      "Pick your player color before getting ready.",
+    );
     actor.ready = action.ready;
+    return s;
+  }
+  if (action.type === "PICK_COLOR") {
+    requireRule(
+      s.phase === "lobby",
+      "Player colors are locked during the match.",
+    );
+    requireRule(
+      !s.players.some((p) => p.id !== actorId && p.color === action.color),
+      "That player color is already taken.",
+    );
+    actor.color = action.color;
+    actor.ready = false;
+    return s;
+  }
+  if (action.type === "SET_RULES" || action.type === "SET_GOAL") {
+    requireRule(
+      actorId === s.ownerId && s.phase === "lobby",
+      "Only the lobby owner can change settings before play.",
+    );
+    if (action.type === "SET_RULES") s.rules = rulesSchema.parse(action.rules);
+    else s.goal = goalSchema.parse(action.goal);
+    s.players.forEach((p) => {
+      p.ready = false;
+    });
+    s.message = "Table settings changed. Everyone needs to ready up again.";
     return s;
   }
   if (action.type === "SET_CAPACITY") {
@@ -235,7 +295,7 @@ export function reduceGame(
         "At least two players are needed.",
       );
       requireRule(
-        s.players.every((p) => p.ready),
+        s.players.every((p) => p.ready && p.color),
         "Everyone must be ready.",
       );
     } else requireRule(s.phase === "round-over", "The round has not ended.");
@@ -253,6 +313,10 @@ export function reduceGame(
     return s;
   }
   if (action.type === "CATCH_UNO") {
+    requireRule(
+      s.rules.unoPenalty,
+      "UNO catch penalties are disabled at this table.",
+    );
     requireRule(
       action.playerId !== actorId && s.unoVulnerable === action.playerId,
       "That player cannot be caught now.",
@@ -299,15 +363,35 @@ export function reduceGame(
   if (action.type === "DRAW") {
     requireRule(!s.hasDrawn, "You have already drawn this turn.");
     s.unoVulnerable = null;
-    const [card] = draw(s, actorId, 1);
+    if (s.pendingDrawTwo) {
+      const penalty = s.pendingDrawTwo;
+      const received = draw(s, actorId, penalty).length;
+      s.pendingDrawTwo = 0;
+      advance(s);
+      s.message = `${actor.name} takes ${received} cards from the +${penalty} stack and misses a turn.`;
+      return s;
+    }
+    let card = draw(s, actorId, 1)[0];
+    let count = card ? 1 : 0;
+    // Bounded by the physical deck; stop cleanly when every available card is held.
+    while (s.rules.drawUntilPlayable && card && !canPlay(s, card)) {
+      const next = draw(s, actorId, 1)[0];
+      if (!next) break;
+      card = next;
+      count++;
+    }
     s.hasDrawn = true;
     s.drawnCardId = card?.id ?? null;
-    s.message = `${actor.name} draws a card.`;
+    s.message = `${actor.name} draws ${count === 1 ? "a card" : `${count} cards`}.`;
     if (!card || !canPlay(s, card)) advance(s);
     return s;
   }
   if (action.type === "PASS") {
     requireRule(s.hasDrawn, "Draw a card before passing.");
+    requireRule(
+      !s.rules.mustPlayDrawn,
+      "This table requires you to play the drawn card.",
+    );
     s.unoVulnerable = null;
     advance(s);
     return s;
@@ -332,7 +416,8 @@ export function reduceGame(
     s.discard.push(card);
     const previousColor = s.activeColor;
     s.activeColor = card.color ?? action.color!;
-    if (hand.length === 1 && !action.uno) s.unoVulnerable = actorId;
+    if (s.rules.unoPenalty && hand.length === 1 && !action.uno)
+      s.unoVulnerable = actorId;
     s.message = `${actor.name} plays ${card.color ?? ""} ${card.value}${action.uno && hand.length === 1 ? " and calls UNO!" : "."}`;
     if (card.value === "reverse") {
       s.direction = s.direction === 1 ? -1 : 1;
@@ -340,8 +425,16 @@ export function reduceGame(
     } else if (card.value === "skip") advance(s, 2);
     else if (card.value === "draw2") {
       advance(s);
-      draw(s, currentPlayer(s).id, 2);
-      advance(s);
+      if (s.rules.stackDrawTwo && hand.length > 0) {
+        s.pendingDrawTwo += 2;
+        s.message = `${actor.name} stacks Draw Two. ${currentPlayer(s).name}: stack another +2 or draw ${s.pendingDrawTwo}.`;
+      } else {
+        // A final +2 settles the whole stack before scoring; the round cannot
+        // continue stacking after a player has gone out.
+        draw(s, currentPlayer(s).id, s.pendingDrawTwo + 2);
+        s.pendingDrawTwo = 0;
+        advance(s);
+      }
     } else if (card.value === "wild4") {
       // Illegal Draw Fours remain playable so the official bluff/challenge rule works.
       advance(s);
@@ -364,4 +457,46 @@ export function assertCardConservation(s: GameState): boolean {
   if (s.phase === "lobby") return true;
   const cards = [...s.drawPile, ...s.discard, ...Object.values(s.hands).flat()];
   return cards.length === 108 && new Set(cards.map((c) => c.id)).size === 108;
+}
+
+/** Public movement cues travel with each committed action, including after recovery.
+ * Draw/deal events contain counts only: opponents always animate card backs.
+ */
+export function reduceGame(
+  state: GameState,
+  actorId: string,
+  action: GameAction,
+): GameState {
+  const next = applyAction(state, actorId, action);
+  const events: TableEvent[] = [];
+  const newRound = next.round !== state.round;
+  if (newRound) {
+    for (const player of next.players)
+      events.push({
+        kind: "deal",
+        playerId: player.id,
+        count: next.hands[player.id].length,
+      });
+  } else if (state.phase === "playing") {
+    if (action.type === "PLAY") {
+      const card = state.hands[actorId].find((c) => c.id === action.cardId);
+      if (card) events.push({ kind: "play", playerId: actorId, card });
+    }
+    for (const player of next.players) {
+      const oldIds = new Set(state.hands[player.id].map((c) => c.id));
+      const count = next.hands[player.id].filter(
+        (c) => !oldIds.has(c.id),
+      ).length;
+      if (count) events.push({ kind: "draw", playerId: player.id, count });
+    }
+  }
+  if (next.phase === "playing" && next.turnSerial !== state.turnSerial) {
+    events.push({
+      kind: "turn",
+      playerId: currentPlayer(next).id,
+      previousPlayerId: newRound ? undefined : currentPlayer(state).id,
+    });
+  }
+  next.animation = { id: state.animation.id + 1, events };
+  return next;
 }

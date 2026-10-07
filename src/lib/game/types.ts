@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { goalSchema, playerColorSchema, rulesSchema } from "./settings";
 
 export const colors = ["red", "yellow", "green", "blue"] as const;
 export const colorSchema = z.enum(colors);
@@ -30,13 +31,31 @@ export const playerSchema = z.object({
   name: z.string().trim().min(1).max(24),
   ready: z.boolean(),
   score: z.number().int().nonnegative(),
+  wins: z.number().int().nonnegative(),
+  color: playerColorSchema.nullable(),
 });
 export type Player = z.infer<typeof playerSchema>;
+export const tableEventSchema = z.object({
+  kind: z.enum(["play", "draw", "deal", "turn"]),
+  playerId: z.string(),
+  card: cardSchema.optional(),
+  count: z.number().int().nonnegative().optional(),
+  previousPlayerId: z.string().optional(),
+});
+export type TableEvent = z.infer<typeof tableEventSchema>;
 export const gameSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   phase: z.enum(["lobby", "playing", "round-over", "match-over"]),
   ownerId: z.string(),
   maxPlayers: z.number().int().min(2).max(12),
+  rules: rulesSchema,
+  goal: goalSchema,
+  turnSerial: z.number().int().nonnegative(),
+  pendingDrawTwo: z.number().int().nonnegative(),
+  animation: z.object({
+    id: z.number().int().nonnegative(),
+    events: z.array(tableEventSchema).max(24),
+  }),
   players: z.array(playerSchema).min(1).max(12),
   hands: z.record(z.string(), z.array(cardSchema).max(108)),
   drawPile: z.array(cardSchema).max(108),
@@ -68,6 +87,9 @@ export type GameState = z.infer<typeof gameSchema>;
 export const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("JOIN"), player: playerSchema }),
   z.object({ type: z.literal("READY"), ready: z.boolean() }),
+  z.object({ type: z.literal("PICK_COLOR"), color: playerColorSchema }),
+  z.object({ type: z.literal("SET_RULES"), rules: rulesSchema }),
+  z.object({ type: z.literal("SET_GOAL"), goal: goalSchema }),
   z.object({
     type: z.literal("SET_CAPACITY"),
     max: z.number().int().min(2).max(12),

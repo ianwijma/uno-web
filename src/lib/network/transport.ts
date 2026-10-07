@@ -13,7 +13,7 @@ export async function createTransport(
   error: (message: string) => void,
 ): Promise<Transport> {
   if (network === "local") {
-    const channel = new BroadcastChannel(`uno-v1:${roomId}:${secret}`);
+    const channel = new BroadcastChannel(`uno-v2:${roomId}:${secret}`);
     channel.onmessage = (event) => receive(event.data);
     return {
       send: async (message) => channel.postMessage(message),
@@ -33,7 +33,7 @@ export async function createTransport(
   }
   const room = joinRoom(
     {
-      appId: "ianwijma-uno-web-v1",
+      appId: "ianwijma-uno-web-v2",
       password: secret,
       maxReceiveBytes: 256 * 1024,
       ...(rtcConfig ? { rtcConfig } : {}),
@@ -46,7 +46,7 @@ export async function createTransport(
         ),
     },
   );
-  const action = room.makeAction<Envelope>("protocol-v1");
+  const action = room.makeAction<Envelope>("protocol-v2");
   action.onMessage = (message) => receive(message);
   return {
     send: async (message) => {
