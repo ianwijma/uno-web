@@ -9,7 +9,7 @@ import {
   parseInvite,
 } from "@/lib/network/invite";
 import { GameSession } from "@/lib/network/session";
-import { identityFor, tabKey } from "@/lib/network/storage";
+import { db, identityFor, tabKey } from "@/lib/network/storage";
 import { useSession } from "@/lib/network/store";
 import { classicRules, goalLabel, ruleOptions } from "@/lib/game/settings";
 import { CardBack, PlayingCard } from "./card";
@@ -89,19 +89,54 @@ export function UnoApp() {
   const sessionRef = useRef<GameSession | null>(null);
   const view = useSession();
   useEffect(() => {
-    startTransition(() => {
-      setName(localStorage.getItem("uno-name-v1") ?? "");
-      if (window.location.hash) {
-        try {
-          setInvite(parseInvite(window.location.href));
+    let cancelled = false;
+    let restored: GameSession | null = null;
+    void (async () => {
+      try {
+        const savedName = localStorage.getItem("uno-name-v1") ?? "";
+        startTransition(() => setName(savedName));
+        if (!window.location.hash) return;
+        const link = parseInvite(window.location.href);
+        startTransition(() => {
+          setInvite(link);
           setInviteInput(window.location.href);
-        } catch (e) {
-          setError(e instanceof Error ? e.message : "Invalid invite link.");
+        });
+        const key = sessionStorage.getItem("uno-tab-v1");
+        if (!key || sessionStorage.getItem(`uno-left:${link.room}`)) return;
+        const [identity, saved] = await Promise.all([
+          db.identities.get(key),
+          db.journals.get(`${key}:${link.room}`),
+        ]);
+        if (cancelled || !identity || !saved?.committed) return;
+        const player = saved.committed.state.players.find(
+          (p) => p.id === identity.id,
+        );
+        if (!player) return;
+        restored = new GameSession(link, identity, player.name);
+        sessionRef.current = restored;
+        await restored.open();
+        if (cancelled) return;
+        setName(player.name);
+        setSession(restored);
+      } catch (e) {
+        if (!cancelled) {
+          restored?.close();
+          sessionRef.current = null;
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Could not restore your table. Join again to retry.",
+          );
         }
+      } finally {
+        if (!cancelled) setInitialized(true);
       }
-      setInitialized(true);
-    });
-    return () => sessionRef.current?.close();
+    })();
+    return () => {
+      cancelled = true;
+      sessionRef.current?.close();
+      sessionRef.current = null;
+    };
   }, []);
   async function connect(create: boolean) {
     setError(null);
@@ -124,6 +159,7 @@ export function UnoApp() {
       sessionRef.current = next;
       await next.open(create ? 6 : undefined);
       localStorage.setItem("uno-name-v1", name.trim());
+      sessionStorage.removeItem(`uno-left:${link.room}`);
       window.history.replaceState(null, "", inviteLink(link));
       setInvite(link);
       setSession(next);
@@ -138,6 +174,7 @@ export function UnoApp() {
     }
   }
   function leave() {
+    if (invite) sessionStorage.setItem(`uno-left:${invite.room}`, "1");
     sessionRef.current?.close();
     sessionRef.current = null;
     setSession(null);
@@ -211,7 +248,12 @@ export function UnoApp() {
           </button>
         </div>
       </header>
-      {!session ? (
+      {!initialized ? (
+        <section className="loading-table paper" role="status">
+          <LoaderCircle className="spin" />
+          <h2>Returning to your table…</h2>
+        </section>
+      ) : !session ? (
         <section className="welcome-table wood-frame">
           <div className="welcome-felt">
             <div className="welcome-art" aria-hidden="true">

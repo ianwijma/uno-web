@@ -229,6 +229,31 @@ export function Lobby({
             : "Share an invite to play with friends on other devices."}{" "}
           Choose the connection before anyone joins.
         </p>
+        <label className="field-label" htmlFor="turn-timeout">
+          Time per turn
+        </label>
+        <select
+          id="turn-timeout"
+          value={state.turnTimeoutSeconds ?? 0}
+          disabled={!owner || !enabled}
+          onChange={(e) =>
+            session.act({
+              type: "SET_TURN_TIMEOUT",
+              seconds: Number(e.target.value) as 0 | 15 | 30 | 60 | 90 | 120,
+            })
+          }
+        >
+          {[0, 15, 30, 60, 90, 120].map((seconds) => (
+            <option key={seconds} value={seconds}>
+              {seconds ? `${seconds} seconds` : "Unlimited"}
+            </option>
+          ))}
+        </select>
+        <p className="field-hint">
+          Time runs for the whole turn, including drawing and choosing a color.
+          When it expires, the turn is skipped and any pending draw penalty is
+          accepted. Reloading does not restart the clock.
+        </p>
         <fieldset className="goal-settings">
           <legend>
             <Crown size={17} /> The winning goal

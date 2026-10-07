@@ -6,7 +6,10 @@ import { GameState, TableEvent } from "@/lib/game/types";
 import { CardBack, PlayingCard } from "./card";
 import { PlayerToken } from "./player-token";
 
-export function useTablePresentation(state: GameState) {
+export function useTablePresentation(
+  state: GameState,
+  replayInitialDeal = true,
+) {
   const reduced = useReducedMotion();
   const [shown, setShown] = useState(state);
   const [moving, setMoving] = useState<{
@@ -55,7 +58,9 @@ export function useTablePresentation(state: GameState) {
     let replay = next.animation.id === lastQueued.current + 1;
     if (first.current) {
       first.current = false;
-      replay = next.animation.events.some((e) => e.kind === "deal");
+      replay =
+        replayInitialDeal &&
+        next.animation.events.some((e) => e.kind === "deal");
       if (!replay) return;
     } else if (next.animation.id <= lastQueued.current) {
       // Heartbeats and leader changes are not new card moves.
