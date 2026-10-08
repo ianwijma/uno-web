@@ -11,6 +11,7 @@ import {
 import { GameSession } from "@/lib/network/session";
 import { useSession } from "@/lib/network/store";
 import { Invite } from "@/lib/network/invite";
+import { ConnectionDot } from "./connection-dot";
 import { PlayerToken } from "./player-token";
 
 export function Lobby({
@@ -60,12 +61,12 @@ export function Lobby({
                 <PlayerToken player={player} />
                 <div className="seat-name">
                   <strong>
+                    <ConnectionDot playerId={player.id} name={player.name} />
                     {player.name}
                     {player.id === view.selfId ? " (you)" : ""}
                   </strong>
                   <span>
                     {player.id === state.ownerId ? "Table host" : "Player"}
-                    {!view.online.includes(player.id) ? " · reconnecting" : ""}
                   </span>
                 </div>
                 {player.ready ? (

@@ -2134,3 +2134,59 @@ button.playing-card.playable:hover {
 .turn-timer.urgent {
   color: #ffb498;
 }
+
+.connection-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px #0005;
+  flex-shrink: 0;
+}
+.connection-dot.stable {
+  background: #69ba72;
+}
+.connection-dot.flaky {
+  background: #eda94b;
+}
+.connection-dot.offline {
+  background: #df5b50;
+}
+.decision-modal {
+  width: min(540px, 100%);
+}
+.decision-modal h2 {
+  font-family: Georgia, serif;
+  font-size: 26px;
+  margin-bottom: 16px;
+}
+.decision-modal p {
+  margin-bottom: 20px;
+}
+.decision-modal .turn-timer,
+.color-modal .turn-timer {
+  color: #55442d;
+  margin: 18px 0;
+}
+.decision-modal .turn-timer.urgent,
+.color-modal .turn-timer.urgent {
+  color: #a52d21;
+}
+.decision-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 18px 0;
+}
+.decision-modal > button {
+  margin: 8px 10px 0 0;
+}
+.decision-uno {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}

@@ -16,6 +16,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.2.0",
     "dexie": "^4.4.6",
     "fast-json-stable-stringify": "^2.1.0",
     "lucide-react": "^1.52.0",
@@ -23,6 +24,7 @@
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "sonner": "^2.0.8",
     "trystero": "^0.26.0",
     "zod": "^4.6.5",
     "zustand": "^5.0.15"

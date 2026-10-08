@@ -13,8 +13,10 @@ import { db, identityFor, tabKey } from "@/lib/network/storage";
 import { useSession } from "@/lib/network/store";
 import { classicRules, goalLabel, ruleOptions } from "@/lib/game/settings";
 import { CardBack, PlayingCard } from "./card";
-import { Dialog } from "./dialog";
+import { Dialog, DialogTitle } from "./dialog";
 import { Lobby } from "./lobby";
+import { Toaster } from "sonner";
+import { ConnectionNotifications } from "./connection-notifications";
 import { GameTable } from "./game-table";
 
 function Rules({ onClose }: { onClose: () => void }) {
@@ -23,7 +25,7 @@ function Rules({ onClose }: { onClose: () => void }) {
   return (
     <Dialog labelId="rules-title" onClose={onClose} className="paper">
       <div className="paper-heading">
-        <h2 id="rules-title">The rulebook</h2>
+        <DialogTitle id="rules-title">The rulebook</DialogTitle>
         <button
           className="icon-button"
           aria-label="Close rules"
@@ -365,13 +367,6 @@ export function UnoApp() {
               </button>
             </div>
           ) : null}
-          {view.status === "paused" || view.status === "electing" ? (
-            <div className="connection-notice" role="status">
-              {view.status === "paused"
-                ? "Taking a breather. Waiting for a majority of players to reconnect."
-                : "The host left. Passing the table to a new game master…"}
-            </div>
-          ) : null}
           {!state ? (
             <div className="loading-table paper">
               <LoaderCircle size={28} className="spin" />
@@ -404,6 +399,14 @@ export function UnoApp() {
         <span>GOOD COMPANY. QUESTIONABLE STRATEGY.</span>
         <span>Uno Web · A game night, wherever you are.</span>
       </footer>
+      <Toaster
+        position="bottom-right"
+        duration={4500}
+        visibleToasts={2}
+        closeButton
+        richColors
+      />
+      {session ? <ConnectionNotifications key={invite?.room} /> : null}
       {rulesOpen ? <Rules onClose={() => setRulesOpen(false)} /> : null}
     </main>
   );

@@ -54,12 +54,11 @@ function fixture(specs: string[][], topSpec = "red:5"): GameState {
   s.drawnCardId = null;
   return s;
 }
-const play = (s: GameState, value: Card["value"], uno = true) =>
+const play = (s: GameState, value: Card["value"]) =>
   reduceGame(s, currentPlayer(s).id, {
     type: "PLAY",
     cardId: s.hands[currentPlayer(s).id].find((c) => c.value === value)!.id,
     color: "blue",
-    uno,
   });
 
 describe("classic UNO", () => {
@@ -214,7 +213,6 @@ describe("classic UNO", () => {
     let s = play(
       fixture([["red:7", "green:8"], ["yellow:1"], ["blue:8"]]),
       "7",
-      false,
     );
     expect(s.unoVulnerable).toBe("p0");
     expect(s.hands.p0).toHaveLength(1);
@@ -270,7 +268,6 @@ describe("classic UNO", () => {
                   type: "PLAY",
                   cardId: playable[i % playable.length].id,
                   color: "blue",
-                  uno: true,
                 });
               else
                 s = reduceGame(s, id, { type: s.hasDrawn ? "PASS" : "DRAW" });
@@ -433,7 +430,7 @@ describe("table settings and house rules", () => {
   it("disables missed-UNO penalties when the table chooses", () => {
     let s = fixture([["red:7", "green:8"], ["yellow:1"], ["blue:8"]]);
     s.rules.unoPenalty = false;
-    s = play(s, "7", false);
+    s = play(s, "7");
     expect(s.unoVulnerable).toBeNull();
     expect(() =>
       reduceGame(s, "p2", { type: "CATCH_UNO", playerId: "p0" }),
@@ -489,7 +486,7 @@ describe("table settings and house rules", () => {
                 s,
                 id,
                 card
-                  ? { type: "PLAY", cardId: card.id, color: "green", uno: true }
+                  ? { type: "PLAY", cardId: card.id, color: "green" }
                   : { type: s.hasDrawn ? "PASS" : "DRAW" },
               );
             }
@@ -592,4 +589,38 @@ describe("turn deadlines", () => {
     delete s.turnDeadline;
     expect(play(s, "1").turnDeadline).toBeNull();
   });
+});
+
+it("only an explicit UNO action declares UNO, including two-player action cards", () => {
+  const start = fixture([["red:skip", "green:8"], ["yellow:1"]]);
+  const next = reduceGame(start, "p0", {
+    type: "PLAY",
+    cardId: start.hands.p0[0].id,
+  });
+  expect(next.turn).toBe(0);
+  expect(next.unoVulnerable).toBe("p0");
+  expect(next.unoCalled).toEqual([]);
+  expect(
+    reduceGame(next, "p1", { type: "CATCH_UNO", playerId: "p0" }).hands.p0,
+  ).toHaveLength(3);
+  const called = reduceGame(next, "p0", { type: "UNO" });
+  expect(called.unoCalled).toEqual(["p0"]);
+  expect(called.unoVulnerable).toBeNull();
+  expect(called.turnSerial).toBe(next.turnSerial);
+  expect(() =>
+    reduceGame(called, "p1", { type: "CATCH_UNO", playerId: "p0" }),
+  ).toThrow();
+  const drawn = reduceGame(called, "p0", { type: "DRAW" });
+  expect(drawn.unoCalled).toEqual([]);
+});
+
+it("manual UNO still works with catch penalties disabled and does not auto-declare after the catch window", () => {
+  let s = fixture([["red:7", "green:8"], ["yellow:1"], ["blue:8"]]);
+  s.rules.unoPenalty = false;
+  s = play(s, "7");
+  expect(s.unoCalled).toEqual([]);
+  expect(reduceGame(s, "p0", { type: "UNO" }).unoCalled).toEqual(["p0"]);
+  s.rules.unoPenalty = true;
+  s = reduceGame(s, "p1", { type: "DRAW" });
+  expect(s.unoCalled).toEqual([]);
 });

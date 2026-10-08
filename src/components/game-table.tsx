@@ -9,8 +9,9 @@ import { colorHex, goalLabel, isClassic } from "@/lib/game/settings";
 import { GameSession } from "@/lib/network/session";
 import { useSession } from "@/lib/network/store";
 import { CardBack, ColorPicker, PlayingCard } from "./card";
-import { Dialog } from "./dialog";
+import { Dialog, DialogTitle } from "./dialog";
 import { TurnTimer } from "./turn-timer";
+import { ConnectionDot } from "./connection-dot";
 import { PlayerToken } from "./player-token";
 import {
   TableFlights,
@@ -39,7 +40,6 @@ export function GameTable({
   } | null>(null);
   const wildCard =
     wildChoice?.turnSerial === liveState.turnSerial ? wildChoice.card : null;
-  const [declareUno, setDeclareUno] = useState(true);
   const [revealed, setRevealed] = useState<Card[] | null>(null);
   const rack = useRef<HTMLDivElement>(null);
   const hand = state.hands[view.selfId] ?? [];
@@ -67,10 +67,13 @@ export function GameTable({
       type: "PLAY",
       cardId: card.id,
       ...(color ? { color } : {}),
-      uno: declareUno,
     });
     setWildCard(null);
   }
+  const [dismissedResults, setDismissedResults] = useState<number | null>(null);
+  const drawnCard = hand.find((card) => card.id === state.drawnCardId);
+  const decisionReady =
+    !animating && state.animation.id === liveState.animation.id;
   const winner = state.players.find((p) => p.id === state.winnerId);
   const sortedPlayers = [...state.players].sort((a, b) =>
     state.goal.mode === "points"
@@ -157,10 +160,12 @@ export function GameTable({
                       </span>
                     ) : null}
                   </div>
-                  <strong>{player.name}</strong>
+                  <strong>
+                    <ConnectionDot playerId={player.id} name={player.name} />
+                    {player.name}
+                  </strong>
                   <span className="card-count">
                     {state.hands[player.id].length} cards
-                    {!view.online.includes(player.id) ? " · offline" : ""}
                   </span>
                   <div className="mini-hand" aria-hidden="true">
                     {Array.from(
@@ -170,17 +175,18 @@ export function GameTable({
                       ),
                     )}
                   </div>
-                  {state.unoVulnerable === player.id ? (
+                  {liveState.rules.unoPenalty &&
+                  liveState.unoVulnerable === player.id ? (
                     <button
                       className="catch-button"
-                      disabled={!enabled}
+                      disabled={view.status !== "connected" || view.busy}
                       onClick={() =>
                         session.act({ type: "CATCH_UNO", playerId: player.id })
                       }
                     >
                       Catch UNO!
                     </button>
-                  ) : state.hands[player.id].length === 1 ? (
+                  ) : liveState.unoCalled?.includes(player.id) ? (
                     <span className="uno-tag">UNO</span>
                   ) : null}
                 </article>
@@ -348,114 +354,33 @@ export function GameTable({
               </button>
               <button
                 className="red-button uno-button"
-                disabled={!enabled || state.unoVulnerable !== self.id}
+                disabled={
+                  view.status !== "connected" ||
+                  view.busy ||
+                  liveState.hands[self.id]?.length !== 1 ||
+                  !!liveState.unoCalled?.includes(self.id) ||
+                  liveState.phase !== "playing"
+                }
                 onClick={() => session.act({ type: "UNO" })}
               >
                 UNO!
               </button>
             </div>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={declareUno}
-                onChange={(e) => setDeclareUno(e.target.checked)}
-              />{" "}
-              Call UNO with my play
-            </label>
           </div>
         </section>
-        {challenge ? (
-          <section className="paper challenge-slip">
-            <h2>A Wild Draw Four. Your call.</h2>
-            <p>
-              Challenge if they had the previous color. Lose the challenge and
-              you draw six.
-            </p>
-            <div className="button-row">
-              <button
-                className="cream-button"
-                disabled={!enabled}
-                onClick={() =>
-                  session.act({ type: "RESOLVE_CHALLENGE", challenge: false })
-                }
-              >
-                Accept four
-              </button>
-              <button
-                className="red-button"
-                disabled={!enabled}
-                onClick={() => {
-                  setRevealed(challenge.previousHand);
-                  session.act({ type: "RESOLVE_CHALLENGE", challenge: true });
-                }}
-              >
-                Challenge
-              </button>
-            </div>
-          </section>
-        ) : null}
-        {revealed ? (
-          <section className="paper reveal-slip">
-            <div className="paper-heading">
-              <h2>The challenged hand</h2>
-              <button
-                className="icon-button"
-                aria-label="Dismiss challenged hand"
-                onClick={() => setRevealed(null)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <p>Revealed to you as the challenger.</p>
-            <div className="revealed-cards">
-              {revealed.map((card) => (
-                <PlayingCard key={card.id} card={card} small />
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {state.phase !== "playing" ? (
-          <section className="paper results">
-            <span className="eyebrow">
-              {state.phase === "match-over"
-                ? "WE HAVE A WINNER"
-                : "PENCILS OUT"}
-            </span>
-            <h2>
-              {state.phase === "match-over"
-                ? `${winner?.name} takes the game.`
-                : "Mark it on the scorepad."}
-            </h2>
-            <p>
-              {state.message} {goalLabel(state.goal)}.
-            </p>
-            {state.ownerId === self.id && state.phase === "round-over" ? (
-              <button
-                className="red-button"
-                disabled={view.status !== "connected" || view.busy || animating}
-                onClick={() =>
-                  session.act({
-                    type: "NEXT_ROUND",
-                    seed: crypto.getRandomValues(new Uint32Array(1))[0],
-                  })
-                }
-              >
-                Deal the next round <ArrowRight size={17} />
-              </button>
-            ) : (
-              <p className="field-hint">
-                {state.phase === "match-over"
-                  ? "Create a new lobby to play another match."
-                  : "The host will deal the next round."}
-              </p>
-            )}
-          </section>
-        ) : null}
       </section>
       <aside className="paper scorepad">
         <div className="scorepad-clip" aria-hidden="true" />
         <span className="eyebrow">KEEPING SCORE</span>
         <h2>{goalLabel(state.goal)}.</h2>
+        {state.phase !== "playing" ? (
+          <button
+            className="ink-button"
+            onClick={() => setDismissedResults(null)}
+          >
+            View round results
+          </button>
+        ) : null}
         <div className="scorepad-columns">
           <span>Player</span>
           <span>{state.goal.mode === "points" ? "Points" : "Wins"}</span>
@@ -464,6 +389,7 @@ export function GameTable({
           <div className="score-row" key={player.id}>
             <PlayerToken player={player} small />
             <span>
+              <ConnectionDot playerId={player.id} name={player.name} />
               {player.name}
               {player.id === self.id ? " (you)" : ""}
               {player.id === view.leaderId ? (
@@ -498,15 +424,14 @@ export function GameTable({
           </p>
         </div>
       </aside>
-      {moving ? <TableFlights key={moving.id} events={moving.events} /> : null}
-      {wildCard || (chooseOpening && !animating) ? (
+      {decisionReady && (wildCard || chooseOpening) ? (
         <Dialog
           labelId="color-title"
           className="paper color-modal"
           onClose={chooseOpening ? undefined : () => setWildCard(null)}
         >
           <div className="paper-heading">
-            <h2 id="color-title">Pick the next color.</h2>
+            <DialogTitle id="color-title">Pick the next color.</DialogTitle>
             {!chooseOpening ? (
               <button
                 className="icon-button"
@@ -517,6 +442,7 @@ export function GameTable({
               </button>
             ) : null}
           </div>
+          <TurnTimer state={liveState} />
           <ColorPicker
             onChoose={(color) => {
               if (!enabled) return;
@@ -524,7 +450,212 @@ export function GameTable({
               else if (wildCard) play(wildCard, color);
             }}
           />
+          <UnoDecisionActions session={session} state={liveState} />
         </Dialog>
+      ) : decisionReady && challenge ? (
+        <Dialog labelId="challenge-title" className="paper decision-modal">
+          <DialogTitle id="challenge-title">
+            A Wild Draw Four. Your call.
+          </DialogTitle>
+          <p>
+            Challenge if they had the previous color. Lose the challenge and you
+            draw six.
+          </p>
+          <TurnTimer state={liveState} />
+          <div className="button-row">
+            <button
+              className="cream-button"
+              disabled={!enabled}
+              onClick={() =>
+                session.act({ type: "RESOLVE_CHALLENGE", challenge: false })
+              }
+            >
+              Accept four
+            </button>
+            <button
+              className="red-button"
+              disabled={!enabled}
+              onClick={() => {
+                setRevealed(challenge.previousHand);
+                session.act({ type: "RESOLVE_CHALLENGE", challenge: true });
+              }}
+            >
+              Challenge
+            </button>
+          </div>
+          <UnoDecisionActions session={session} state={liveState} />
+        </Dialog>
+      ) : decisionReady &&
+        isTurn &&
+        state.phase === "playing" &&
+        state.pendingDrawTwo > 0 ? (
+        <Dialog labelId="stack-title" className="paper decision-modal">
+          <DialogTitle id="stack-title">
+            Stack a +2 or take {state.pendingDrawTwo} cards.
+          </DialogTitle>
+          <p>
+            Choose a Draw Two to pass on the penalty, or take the cards and miss
+            your turn.
+          </p>
+          <TurnTimer state={liveState} />
+          <div className="decision-cards">
+            {hand
+              .filter((card) => card.value === "draw2")
+              .map((card) => (
+                <PlayingCard
+                  key={card.id}
+                  card={card}
+                  disabled={!enabled}
+                  onClick={() => play(card)}
+                />
+              ))}
+          </div>
+          <button
+            className="cream-button"
+            disabled={!enabled}
+            onClick={() => session.act({ type: "DRAW" })}
+          >
+            Take {state.pendingDrawTwo} cards
+          </button>
+          <UnoDecisionActions session={session} state={liveState} />
+        </Dialog>
+      ) : decisionReady &&
+        isTurn &&
+        state.phase === "playing" &&
+        state.hasDrawn &&
+        drawnCard ? (
+        <Dialog labelId="drawn-title" className="paper decision-modal">
+          <DialogTitle id="drawn-title">Play the card you drew?</DialogTitle>
+          <p>
+            {state.rules.mustPlayDrawn
+              ? "This table requires you to play a playable drawn card."
+              : "Play this card, or keep it and end your turn."}
+          </p>
+          <TurnTimer state={liveState} />
+          <div className="decision-cards">
+            <PlayingCard
+              card={drawnCard}
+              disabled={!enabled}
+              onClick={() => play(drawnCard)}
+            />
+          </div>
+          {!state.rules.mustPlayDrawn ? (
+            <button
+              className="cream-button"
+              disabled={!enabled}
+              onClick={() => session.act({ type: "PASS" })}
+            >
+              End turn
+            </button>
+          ) : null}
+          <UnoDecisionActions session={session} state={liveState} />
+        </Dialog>
+      ) : decisionReady && revealed ? (
+        <Dialog
+          labelId="reveal-title"
+          className="paper decision-modal"
+          onClose={() => setRevealed(null)}
+        >
+          <DialogTitle id="reveal-title">The challenged hand</DialogTitle>
+          <p>{state.message}</p>
+          <div className="decision-cards">
+            {revealed.map((card) => (
+              <PlayingCard key={card.id} card={card} small />
+            ))}
+          </div>
+          <button className="cream-button" onClick={() => setRevealed(null)}>
+            Back to the table
+          </button>
+          <UnoDecisionActions session={session} state={liveState} />
+        </Dialog>
+      ) : decisionReady &&
+        state.phase !== "playing" &&
+        dismissedResults !== state.round ? (
+        <Dialog
+          labelId="results-title"
+          className="paper decision-modal"
+          onClose={() => setDismissedResults(state.round)}
+        >
+          <DialogTitle id="results-title">
+            {winner?.name} wins{" "}
+            {state.phase === "match-over" ? "the match" : "the round"}!
+          </DialogTitle>
+          <p>
+            {state.message} {goalLabel(state.goal)}.
+          </p>
+          {state.ownerId === self.id && state.phase === "round-over" ? (
+            <button
+              className="red-button"
+              disabled={view.status !== "connected" || view.busy}
+              onClick={() =>
+                session.act({
+                  type: "NEXT_ROUND",
+                  seed: crypto.getRandomValues(new Uint32Array(1))[0],
+                })
+              }
+            >
+              Deal the next round <ArrowRight size={17} />
+            </button>
+          ) : (
+            <p>
+              {state.phase === "match-over"
+                ? "Create a new lobby to play another match."
+                : "The host will deal the next round."}
+            </p>
+          )}
+          <button
+            className="text-button"
+            onClick={() => setDismissedResults(state.round)}
+          >
+            View the table
+          </button>
+          <UnoDecisionActions session={session} state={liveState} />
+        </Dialog>
+      ) : null}
+
+      {moving ? <TableFlights key={moving.id} events={moving.events} /> : null}
+    </div>
+  );
+}
+
+function UnoDecisionActions({
+  session,
+  state,
+}: {
+  session: GameSession;
+  state: GameState;
+}) {
+  const { selfId, status, busy } = useSession();
+  const canCall =
+    state.phase === "playing" &&
+    state.hands[selfId]?.length === 1 &&
+    !state.unoCalled?.includes(selfId);
+  const catchable =
+    state.rules.unoPenalty && state.unoVulnerable !== selfId
+      ? state.players.find((player) => player.id === state.unoVulnerable)
+      : null;
+  if (!canCall && !catchable) return null;
+  return (
+    <div className="decision-uno">
+      {canCall ? (
+        <button
+          className="red-button"
+          disabled={status !== "connected" || busy}
+          onClick={() => session.act({ type: "UNO" })}
+        >
+          UNO!
+        </button>
+      ) : null}
+      {catchable ? (
+        <button
+          className="ink-button"
+          disabled={status !== "connected" || busy}
+          onClick={() =>
+            session.act({ type: "CATCH_UNO", playerId: catchable.id })
+          }
+        >
+          Catch {catchable.name}’s missed UNO
+        </button>
       ) : null}
     </div>
   );

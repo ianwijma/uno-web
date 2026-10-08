@@ -89,6 +89,7 @@ export const gameSchema = z.object({
     })
     .nullable(),
   unoVulnerable: z.string().nullable(),
+  unoCalled: z.array(z.string()).max(12).optional(),
   winnerId: z.string().nullable(),
   round: z.number().int().nonnegative(),
   rng: z.number().int().nonnegative(),
@@ -121,7 +122,6 @@ export const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("PLAY"),
     cardId: z.string(),
     color: colorSchema.optional(),
-    uno: z.boolean().optional(),
   }),
   z.object({ type: z.literal("DRAW") }),
   z.object({ type: z.literal("PASS") }),
