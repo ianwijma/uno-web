@@ -71,17 +71,23 @@ All admitted browsers keep recovery snapshots: hidden hands, exact draw-pile ord
 
 This is a **trusted-friends prototype**, not a formally verified Raft implementation or protection against malicious participants. Signed messages authenticate senders, but leadership certificates are claimed voter lists rather than independently verified signed vote proofs. A determined participant can inspect all hidden state from their recovery replica. Browser encryption with locally accessible keys would not prevent this.
 
-A majority of admitted players must remain connected. A three-player table can recover with two survivors; a two-player table pauses if either leaves. There is no automatic shrinking of membership to evade quorum. A departed player's turn waits for reconnection, preserving the hand and the classic rules. Closing a tab permanently loses its session identity; reconnect in the same tab, including after reload (which automatically reconnects). Private browsing/storage deletion can also prevent recovery. If every browser leaves, there is no always-on peer to serve an invitation; surviving saved sessions must reconnect and regain a majority.
+A majority of admitted players must remain connected. A three-player table can recover with two survivors; a two-player table pauses if either leaves. There is no automatic shrinking of membership to evade quorum. A departed player keeps their hand; their turn waits for reconnection or the configured turn deadline. Closing a tab permanently loses its session identity; reconnect in the same tab, including after reload (which automatically reconnects). Private browsing/storage deletion can also prevent recovery. If every browser leaves, there is no always-on peer to serve an invitation; surviving saved sessions must reconnect and regain a majority.
 
 Background tabs and suspended mobile browsers may delay heartbeats or appear disconnected. A 12-player WebRTC mesh has 66 peer connections; real-device and network testing at that size remains necessary.
 
 Version 2 invites and rooms are intentionally separate from the earlier prototype. Create a new lobby and share its new link after updating.
 
+## Connection feedback and decisions
+
+Connection loss/recovery and game-master changes appear as brief, dismissible notifications (Sonner), rather than persistent banners. Required special decisions use accessible, focus-trapped dialogs (Radix): Wild color choices, Draw Four challenges, +2 stacking, playable drawn-card choices, and round results. Pending decisions cannot be dismissed without resolving them; turn timeouts still apply. Losing the connection releases the modal so the leave controls remain accessible; the pending decision reappears after recovery. Challenge evidence and results can be dismissed and results reopened from the scorepad.
+
+A dot before each player’s name shows recently authenticated activity: green within 4.5 seconds, orange for delayed heartbeats, red after 12 seconds without traffic. These are reachability indicators, not latency measurements. Valid commands/acknowledgements addressed to another peer also refresh presence; unauthenticated traffic cannot. Unknown peers initially receive an orange discovery window. Quorum and election timing are unchanged.
+
 ## Rules and digital timing
 
 The engine implements initial dealer selection, seven-card dealing, opening action-card effects, matching by color/number/symbol, voluntary drawing, only playing the newly drawn card after a draw, two-player action rules, draw penalties, discard recycling, and scoring. Wild Draw Four bluffs are allowed and resolved through a challenge, including when the last card is a Draw Four. The challenger sees the pre-play hand as evidence.
 
-UNO can be declared atomically with a play using the checkbox, or afterward with the UNO button. A missed declaration is penalized only if another player catches it before the next turn action starts. Commands are ordered by the master; animation timing does not decide legality. Multi-card penalties are resolved atomically, and only real available cards can be drawn when the entire deck is held in players' hands.
+UNO is declared only by pressing **UNO!** after reaching one card. Playing a card never declares it automatically, and the UNO badge appears only after the explicit call. The button remains usable during card animations; it also works when catch penalties are disabled. A missed declaration is penalized only if another player catches it before the next turn action starts, including when a two-player action card gives the same player another turn. Playing the last card still ends the round under classic rules; no extra declaration is required at zero cards. Commands are ordered by the master; animation timing does not decide legality. Multi-card penalties are resolved atomically, and only real available cards can be drawn when the entire deck is held in players' hands.
 
 ### Turn timer and reconnecting
 
@@ -115,7 +121,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The default browser tests use the local transport: admission, full-lobby rejection, readiness, dealing, master departure, election, matching recovered hands/deck, same-seat reconnection, reload recovery, and a replicated draw. They also exercise exclusive colors, lobby configuration, readiness resets, animated draws, and stable card/table dimensions. Mobile checks cover validation, rules, overflow, reduced motion, and a 20-card hand with unchanged card/table dimensions. Unit/property tests cover rule edge cases and card conservation across randomized 2–12-player games.
+The default browser tests use the local transport: admission, full-lobby rejection, readiness, dealing, master departure, election, matching recovered hands/deck, same-seat reconnection, reload recovery, and a replicated draw. They also exercise exclusive colors, lobby configuration, readiness resets, animated draws, and stable card/table dimensions. Mobile checks cover validation, rules, overflow, reduced motion, and a 20-card hand with unchanged card/table dimensions. Browser stories also cover manual UNO/catches, mobile decision dialogs and focus, +2 stacking, drawn-wild color selection, transient notifications, and recovery of stale presence from targeted signed commands. Unit/property tests cover rule edge cases, presence thresholds, and card conservation across randomized 2–12-player games.
 
 An optional public-relay smoke test is available:
 

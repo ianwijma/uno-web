@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { PeerHealth } from "./presence";
 import { GameState } from "../game/types";
 export type ConnectionStatus =
   "connecting" | "waiting" | "connected" | "electing" | "paused" | "closed";
@@ -8,6 +9,8 @@ export interface SessionView {
   leaderId: string | null;
   status: ConnectionStatus;
   online: string[];
+  health: Record<string, PeerHealth>;
+  networkNotice: { id: number; message: string } | null;
   revision: number;
   busy: boolean;
   error: string | null;
@@ -18,6 +21,8 @@ export const useSession = create<SessionView>(() => ({
   leaderId: null,
   status: "closed",
   online: [],
+  health: {},
+  networkNotice: null,
   revision: 0,
   busy: false,
   error: null,
