@@ -73,7 +73,9 @@ export function GameTable({
   const [dismissedResults, setDismissedResults] = useState<number | null>(null);
   const drawnCard = hand.find((card) => card.id === state.drawnCardId);
   const decisionReady =
-    !animating && state.animation.id === liveState.animation.id;
+    view.status === "connected" &&
+    !animating &&
+    state.animation.id === liveState.animation.id;
   const winner = state.players.find((p) => p.id === state.winnerId);
   const sortedPlayers = [...state.players].sort((a, b) =>
     state.goal.mode === "points"

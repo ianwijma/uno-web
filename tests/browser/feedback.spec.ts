@@ -229,6 +229,23 @@ test("UNO is explicit; Draw Four decisions and round results are focused mobile 
   ).toBeFocused();
   await casey.keyboard.press("Escape");
   await expect(challenge).toBeVisible();
+  // A lost quorum must release the modal so the player can still leave.
+  await alice.getByRole("button", { name: "Leave table" }).click();
+  await bob.getByRole("button", { name: "Leave table" }).click();
+  await expect(casey.locator(".connection-status")).toContainText(
+    "Table paused",
+    { timeout: 15000 },
+  );
+  await expect(challenge).not.toBeVisible();
+  await expect(
+    casey.getByRole("button", { name: "Leave table" }),
+  ).toBeEnabled();
+  await alice.getByRole("button", { name: "Join a lobby" }).click();
+  await bob.getByRole("button", { name: "Join a lobby" }).click();
+  await expect(challenge).toBeVisible({ timeout: 25000 });
+  await expect(
+    challenge.getByRole("button", { name: "Accept four" }),
+  ).toBeFocused();
   await casey.keyboard.press("Shift+Tab");
   await expect(challenge.locator("button").last()).toBeFocused();
   await casey.screenshot({

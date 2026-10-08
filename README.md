@@ -79,7 +79,7 @@ Version 2 invites and rooms are intentionally separate from the earlier prototyp
 
 ## Connection feedback and decisions
 
-Connection loss/recovery and game-master changes appear as brief, dismissible notifications (Sonner), rather than persistent banners. Required special decisions use accessible, focus-trapped dialogs (Radix): Wild color choices, Draw Four challenges, +2 stacking, playable drawn-card choices, and round results. Pending decisions cannot be dismissed without resolving them; turn timeouts still apply. Challenge evidence and results can be dismissed and results reopened from the scorepad.
+Connection loss/recovery and game-master changes appear as brief, dismissible notifications (Sonner), rather than persistent banners. Required special decisions use accessible, focus-trapped dialogs (Radix): Wild color choices, Draw Four challenges, +2 stacking, playable drawn-card choices, and round results. Pending decisions cannot be dismissed without resolving them; turn timeouts still apply. Losing the connection releases the modal so the leave controls remain accessible; the pending decision reappears after recovery. Challenge evidence and results can be dismissed and results reopened from the scorepad.
 
 A dot before each player’s name shows recently authenticated activity: green within 4.5 seconds, orange for delayed heartbeats, red after 12 seconds without traffic. These are reachability indicators, not latency measurements. Valid commands/acknowledgements addressed to another peer also refresh presence; unauthenticated traffic cannot. Unknown peers initially receive an orange discovery window. Quorum and election timing are unchanged.
 
