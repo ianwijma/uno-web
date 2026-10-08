@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useRef, useState } from "react";
-import { Copy, Check, ArrowRight, LoaderCircle, X } from "lucide-react";
+import { ArrowRight, LoaderCircle, X } from "lucide-react";
 import {
   Invite,
   inviteLink,
@@ -212,7 +212,7 @@ export function UnoApp() {
     <main
       className={`app-shell ${session && state?.phase !== "lobby" ? "in-game" : ""} selection:bg-amber-200 selection:text-stone-900`}
     >
-      <header className="site-header">
+      <header className={`site-header ${session ? "session-header" : ""}`}>
         <button
           className="brand"
           disabled={starting}
@@ -248,6 +248,11 @@ export function UnoApp() {
           <button className="text-button" onClick={() => setRulesOpen(true)}>
             How to play
           </button>
+          {session ? (
+            <button className="text-button" onClick={leave}>
+              Leave table
+            </button>
+          ) : null}
         </div>
       </header>
       {!initialized ? (
@@ -337,22 +342,6 @@ export function UnoApp() {
         </section>
       ) : (
         <div className="session-layout">
-          <div className="session-toolbar">
-            <span className="table-stamp">
-              {invite?.network === "local"
-                ? "AT HOME · BROWSER TABLE"
-                : "GAME NIGHT · PRIVATE TABLE"}
-            </span>
-            <div className="toolbar-buttons">
-              <button className="text-button" onClick={() => void copyInvite()}>
-                {copied ? <Check size={15} /> : <Copy size={15} />}
-                {copied ? "Copied" : "Invite friends"}
-              </button>
-              <button className="text-button" onClick={leave}>
-                Leave table
-              </button>
-            </div>
-          </div>
           {error || view.error ? (
             <div className="error-box" role="alert">
               {error ?? view.error}
