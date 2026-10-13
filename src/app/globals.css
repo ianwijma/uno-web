@@ -458,18 +458,7 @@ select {
   min-width: 0;
   padding: 10px 0 30px;
 }
-.session-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 23px;
-}
-.toolbar-buttons {
-  display: flex;
-  align-items: center;
-  gap: 23px;
-}
+
 .connection-status {
   display: flex;
   align-items: center;
@@ -1902,21 +1891,7 @@ button.playing-card.playable:hover {
   .site-footer span:first-child {
     font-size: 7px;
   }
-  .session-toolbar {
-    margin-bottom: 18px;
-    gap: 9px;
-    flex-wrap: wrap;
-  }
-  .session-toolbar .table-stamp {
-    font-size: 7px;
-    letter-spacing: 1.2px;
-  }
-  .toolbar-buttons {
-    gap: 17px;
-  }
-  .toolbar-buttons .text-button {
-    font-size: 10px;
-  }
+
   .lobby-felt {
     padding: 28px 17px;
     border-radius: 11px;
@@ -2133,4 +2108,81 @@ button.playing-card.playable:hover {
 }
 .turn-timer.urgent {
   color: #ffb498;
+}
+
+.connection-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px #0005;
+  flex-shrink: 0;
+}
+.connection-dot.stable {
+  background: #69ba72;
+}
+.connection-dot.flaky {
+  background: #eda94b;
+}
+.connection-dot.offline {
+  background: #df5b50;
+}
+.decision-modal {
+  width: min(540px, 100%);
+}
+.decision-modal h2 {
+  font-family: Georgia, serif;
+  font-size: 26px;
+  margin-bottom: 16px;
+}
+.decision-modal p {
+  margin-bottom: 20px;
+}
+.decision-modal .turn-timer,
+.color-modal .turn-timer {
+  color: #55442d;
+  margin: 18px 0;
+}
+.decision-modal .turn-timer.urgent,
+.color-modal .turn-timer.urgent {
+  color: #a52d21;
+}
+.decision-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 18px 0;
+}
+.decision-modal > button {
+  margin: 8px 10px 0 0;
+}
+.decision-uno {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+@media (max-width: 480px) {
+  .session-header {
+    gap: 8px;
+  }
+  .session-header .brand {
+    gap: 8px;
+  }
+  .session-header .brand-sub {
+    display: none;
+  }
+  .session-header .header-actions {
+    gap: 8px;
+  }
+  .session-header .connection-status {
+    max-width: 64px;
+  }
+  .session-header .text-button {
+    white-space: nowrap;
+  }
 }

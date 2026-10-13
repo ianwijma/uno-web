@@ -46,6 +46,7 @@ export function createLobby(player: Player, maxPlayers: number): GameState {
     pendingWild: null,
     challenge: null,
     unoVulnerable: null,
+    unoCalled: [],
     winnerId: null,
     round: 0,
     rng: 1,
@@ -166,6 +167,7 @@ function startRound(s: GameState, seed: number) {
   s.turnSerial++;
   s.pendingDrawTwo = 0;
   s.round++;
+  s.unoCalled = [];
   s.phase = "playing";
   s.winnerId = null;
   s.direction = 1;
@@ -347,10 +349,11 @@ function applyAction(
   }
   if (action.type === "UNO") {
     requireRule(
-      s.unoVulnerable === actorId && s.hands[actorId].length === 1,
+      s.hands[actorId].length === 1 && !s.unoCalled?.includes(actorId),
       "There is no UNO declaration to make.",
     );
-    s.unoVulnerable = null;
+    if (s.unoVulnerable === actorId) s.unoVulnerable = null;
+    s.unoCalled = [...(s.unoCalled ?? []), actorId];
     s.message = `${actor.name} calls UNO!`;
     return s;
   }
@@ -458,9 +461,8 @@ function applyAction(
     s.discard.push(card);
     const previousColor = s.activeColor;
     s.activeColor = card.color ?? action.color!;
-    if (s.rules.unoPenalty && hand.length === 1 && !action.uno)
-      s.unoVulnerable = actorId;
-    s.message = `${actor.name} plays ${card.color ?? ""} ${card.value}${action.uno && hand.length === 1 ? " and calls UNO!" : "."}`;
+    if (s.rules.unoPenalty && hand.length === 1) s.unoVulnerable = actorId;
+    s.message = `${actor.name} plays ${card.color ?? ""} ${card.value}.`;
     if (card.value === "reverse") {
       s.direction = s.direction === 1 ? -1 : 1;
       advance(s, s.players.length === 2 ? 2 : 1);
@@ -487,8 +489,8 @@ function applyAction(
         illegal: previousHand.some((c) => c.color === previousColor),
       };
     } else advance(s);
-    // With two players, skip/reverse/draw2 starts the same player's next turn.
-    if (currentPlayer(s).id === actorId) s.unoVulnerable = null;
+    // The UNO window remains open until the next action, even if a two-player
+    // action card gives this player another turn.
     finish(s, actorId);
     return s;
   }
@@ -516,6 +518,9 @@ export function reduceGame(
     next.turnDeadline = next.turnTimeoutSeconds
       ? now + next.turnTimeoutSeconds * 1000
       : null;
+  next.unoCalled = (next.unoCalled ?? []).filter(
+    (id) => next.hands[id]?.length === 1,
+  );
   const events: TableEvent[] = [];
   const newRound = next.round !== state.round;
   if (newRound) {

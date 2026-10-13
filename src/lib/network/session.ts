@@ -13,6 +13,7 @@ import {
   validFrame,
 } from "./protocol";
 import { db, decode, encode, Identity, Journal } from "./storage";
+import { peerHealth } from "./presence";
 import { useSession } from "./store";
 import { createTransport, Transport } from "./transport";
 
@@ -38,6 +39,7 @@ export class GameSession {
   private journal: Journal;
   private leaderId: string | null;
   private seen = new Map<string, number>();
+  private discovered = new Map<string, number>();
   private lastLeaderSeen = Date.now();
   private electionAt = Date.now() + timeout + Math.random() * 2000;
   private votes = new Set<string>();
@@ -87,6 +89,10 @@ export class GameSession {
   private error(message: string) {
     useSession.setState({ error: message.slice(0, 300), busy: false });
   }
+  private networkError(message: string) {
+    if (this.closed) return;
+    useSession.setState({ networkNotice: { id: Date.now(), message } });
+  }
   clearError() {
     useSession.setState({ error: null });
   }
@@ -112,6 +118,10 @@ export class GameSession {
         };
   }
   private publish() {
+    for (const player of this.journal.committed?.state.players ?? []) {
+      if (!this.discovered.has(player.id))
+        this.discovered.set(player.id, Date.now());
+    }
     const online = this.onlineIds();
     const config = this.electionConfig();
     const majority = jointMajority(online, config.before, config.after);
@@ -133,6 +143,20 @@ export class GameSession {
       selfId: this.selfId,
       leaderId: this.leaderId,
       online,
+      health: Object.fromEntries(
+        (this.journal.committed?.state.players ?? []).map((player) => [
+          player.id,
+          player.id === this.selfId
+            ? status === "connected"
+              ? "stable"
+              : "flaky"
+            : peerHealth(
+                this.seen.get(player.id),
+                Date.now(),
+                this.discovered.get(player.id),
+              ),
+        ]),
+      ),
       status,
       revision: this.journal.committed?.index ?? 0,
       busy:
@@ -149,6 +173,8 @@ export class GameSession {
       leaderId: this.leaderId,
       status: "connecting",
       online: [this.selfId],
+      health: {},
+      networkNotice: null,
       revision: 0,
       busy: false,
       error: null,
@@ -191,7 +217,7 @@ export class GameSession {
       this.invite.key,
       this.invite.network,
       (data) => this.queue(() => this.receive(data)),
-      (message) => this.error(message),
+      (message) => this.networkError(message),
     );
     if (this.closed) {
       this.transport.close();
@@ -225,7 +251,7 @@ export class GameSession {
         this.invite.key,
         network,
         (data) => this.queue(() => this.receive(data)),
-        (message) => this.error(message),
+        (message) => this.networkError(message),
       );
       this.transport?.close();
       this.transport = transport;
@@ -290,11 +316,7 @@ export class GameSession {
     const parsed = envelopeSchema.safeParse(raw);
     if (!parsed.success) return;
     const envelope = parsed.data;
-    if (
-      envelope.room !== this.invite.room ||
-      envelope.from === this.selfId ||
-      (envelope.to && envelope.to !== this.selfId)
-    )
+    if (envelope.room !== this.invite.room || envelope.from === this.selfId)
       return;
     try {
       if (!(await this.authenticate(envelope))) return;
@@ -303,6 +325,10 @@ export class GameSession {
     }
     const from = envelope.from;
     this.seen.set(from, Date.now());
+    // The transport broadcasts signed envelopes. Addressing controls command
+    // handling, not evidence that another player is currently connected.
+    this.publish();
+    if (envelope.to && envelope.to !== this.selfId) return;
     const m = envelope.message;
     if (m.type === "HELLO") {
       if (

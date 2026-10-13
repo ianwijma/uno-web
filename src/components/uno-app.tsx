@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useRef, useState } from "react";
-import { Copy, Check, ArrowRight, LoaderCircle, X } from "lucide-react";
+import { ArrowRight, LoaderCircle, X } from "lucide-react";
 import {
   Invite,
   inviteLink,
@@ -13,8 +13,10 @@ import { db, identityFor, tabKey } from "@/lib/network/storage";
 import { useSession } from "@/lib/network/store";
 import { classicRules, goalLabel, ruleOptions } from "@/lib/game/settings";
 import { CardBack, PlayingCard } from "./card";
-import { Dialog } from "./dialog";
+import { Dialog, DialogTitle } from "./dialog";
 import { Lobby } from "./lobby";
+import { Toaster } from "sonner";
+import { ConnectionNotifications } from "./connection-notifications";
 import { GameTable } from "./game-table";
 
 function Rules({ onClose }: { onClose: () => void }) {
@@ -23,7 +25,7 @@ function Rules({ onClose }: { onClose: () => void }) {
   return (
     <Dialog labelId="rules-title" onClose={onClose} className="paper">
       <div className="paper-heading">
-        <h2 id="rules-title">The rulebook</h2>
+        <DialogTitle id="rules-title">The rulebook</DialogTitle>
         <button
           className="icon-button"
           aria-label="Close rules"
@@ -210,7 +212,7 @@ export function UnoApp() {
     <main
       className={`app-shell ${session && state?.phase !== "lobby" ? "in-game" : ""} selection:bg-amber-200 selection:text-stone-900`}
     >
-      <header className="site-header">
+      <header className={`site-header ${session ? "session-header" : ""}`}>
         <button
           className="brand"
           disabled={starting}
@@ -246,6 +248,11 @@ export function UnoApp() {
           <button className="text-button" onClick={() => setRulesOpen(true)}>
             How to play
           </button>
+          {session ? (
+            <button className="text-button" onClick={leave}>
+              Leave table
+            </button>
+          ) : null}
         </div>
       </header>
       {!initialized ? (
@@ -335,22 +342,6 @@ export function UnoApp() {
         </section>
       ) : (
         <div className="session-layout">
-          <div className="session-toolbar">
-            <span className="table-stamp">
-              {invite?.network === "local"
-                ? "AT HOME · BROWSER TABLE"
-                : "GAME NIGHT · PRIVATE TABLE"}
-            </span>
-            <div className="toolbar-buttons">
-              <button className="text-button" onClick={() => void copyInvite()}>
-                {copied ? <Check size={15} /> : <Copy size={15} />}
-                {copied ? "Copied" : "Invite friends"}
-              </button>
-              <button className="text-button" onClick={leave}>
-                Leave table
-              </button>
-            </div>
-          </div>
           {error || view.error ? (
             <div className="error-box" role="alert">
               {error ?? view.error}
@@ -363,13 +354,6 @@ export function UnoApp() {
               >
                 Dismiss
               </button>
-            </div>
-          ) : null}
-          {view.status === "paused" || view.status === "electing" ? (
-            <div className="connection-notice" role="status">
-              {view.status === "paused"
-                ? "Taking a breather. Waiting for a majority of players to reconnect."
-                : "The host left. Passing the table to a new game master…"}
             </div>
           ) : null}
           {!state ? (
@@ -404,6 +388,14 @@ export function UnoApp() {
         <span>GOOD COMPANY. QUESTIONABLE STRATEGY.</span>
         <span>Uno Web · A game night, wherever you are.</span>
       </footer>
+      <Toaster
+        position="bottom-right"
+        duration={4500}
+        visibleToasts={2}
+        closeButton
+        richColors
+      />
+      {session ? <ConnectionNotifications key={invite?.room} /> : null}
       {rulesOpen ? <Rules onClose={() => setRulesOpen(false)} /> : null}
     </main>
   );

@@ -168,7 +168,8 @@ test("local multiplayer: admission, capacity, deal, host recovery, reconnect, an
     [page, bob, casey].map(async (p) => ({
       p,
       active: await p
-        .getByRole("heading", { name: "Your turn.", exact: true })
+        .locator(".game-heading h1")
+        .filter({ hasText: /^Your turn\.$/ })
         .isVisible(),
     })),
   );
@@ -246,6 +247,7 @@ test("mobile landing renders and validates names and invites", async ({
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "How to play" })).toBeFocused();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -301,7 +303,8 @@ test("a large mobile hand keeps fixed card and board sizes with reduced motion",
         "false",
       );
     const active = (await page
-      .getByRole("heading", { name: "Your turn.", exact: true })
+      .locator(".game-heading h1")
+      .filter({ hasText: /^Your turn\.$/ })
       .isVisible())
       ? page
       : guest;
@@ -314,7 +317,9 @@ test("a large mobile hand keeps fixed card and board sizes with reduced motion",
       continue;
     }
     const revision = (await journal(active)).committed.index;
-    const pass = active.getByRole("button", { name: "End turn", exact: true });
+    const pass = active
+      .getByRole("button", { name: "End turn", exact: true })
+      .last();
     if (await pass.isEnabled()) await pass.click();
     else await active.getByRole("button", { name: "Draw one card" }).click();
     await expect
@@ -348,6 +353,10 @@ test("a large mobile hand keeps fixed card and board sizes with reduced motion",
       .locator(".hand-scroll")
       .evaluate((el) => el.scrollWidth > el.clientWidth),
   ).toBe(true);
+  const modalPass = page
+    .getByRole("dialog")
+    .getByRole("button", { name: "End turn", exact: true });
+  if (await modalPass.isVisible()) await modalPass.click();
   await page.getByRole("button", { name: "Scroll hand right" }).click();
   await expect
     .poll(() => page.locator(".hand-scroll").evaluate((el) => el.scrollLeft))
@@ -405,7 +414,8 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
         "false",
       );
     const active = (await page
-      .getByRole("heading", { name: "Your turn.", exact: true })
+      .locator(".game-heading h1")
+      .filter({ hasText: /^Your turn\.$/ })
       .isVisible())
       ? page
       : guest;
@@ -418,7 +428,9 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
       continue;
     }
     if (await active.locator(".hand-card button:enabled").count()) break;
-    const pass = active.getByRole("button", { name: "End turn", exact: true });
+    const pass = active
+      .getByRole("button", { name: "End turn", exact: true })
+      .last();
     const before = (await journal(active)).committed.index;
     if (await pass.isEnabled()) await pass.click();
     else await active.getByRole("button", { name: "Draw one card" }).click();
@@ -432,7 +444,8 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
       "false",
     );
   const active = (await page
-    .getByRole("heading", { name: "Your turn.", exact: true })
+    .locator(".game-heading h1")
+    .filter({ hasText: /^Your turn\.$/ })
     .isVisible())
     ? page
     : guest;
@@ -460,7 +473,7 @@ test("reload restores lobby settings, readiness, and an active playable hand wit
   expect(after.hands).toEqual(before.hands);
   expect(after.turnDeadline).toBeNull();
   await expect(
-    active.getByRole("heading", { name: "Your turn.", exact: true }),
+    active.locator(".game-heading h1").filter({ hasText: /^Your turn\.$/ }),
   ).toBeVisible();
   const card = active
     .getByRole("button", { name: cardName!, exact: true })
@@ -523,7 +536,8 @@ test("the persisted 30-second deadline survives reload; a disconnected player is
       pages.map(async (p) => ({
         p,
         active: await p
-          .getByRole("heading", { name: "Your turn.", exact: true })
+          .locator(".game-heading h1")
+          .filter({ hasText: /^Your turn\.$/ })
           .isVisible(),
       })),
     )
@@ -539,7 +553,7 @@ test("the persisted 30-second deadline survives reload; a disconnected player is
   expect(restored.turnDeadline).toBe(before.turnDeadline);
   expect(restored.turnSerial).toBe(before.turnSerial);
   expect(restored.hands).toEqual(before.hands);
-  await expect(active.getByRole("timer")).toHaveAttribute(
+  await expect(active.getByRole("timer").first()).toHaveAttribute(
     "data-deadline",
     String(before.turnDeadline),
   );
